@@ -1,0 +1,95 @@
+name: Build macOS App
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyqt5 requests pyinstaller
+
+      - name: Generate .icns from logo.png
+        run: |
+          mkdir -p logo.iconset
+          sips -z 16 16     logo.png --out logo.iconset/icon_16x16.png
+          sips -z 32 32     logo.png --out logo.iconset/icon_16x16@2x.png
+          sips -z 32 32     logo.png --out logo.iconset/icon_32x32.png
+          sips -z 64 64     logo.png --out logo.iconset/icon_32x32@2x.png
+          sips -z 128 128   logo.png --out logo.iconset/icon_128x128.png
+          sips -z 256 256   logo.png --out logo.iconset/icon_128x128@2x.png
+          sips -z 256 256   logo.png --out logo.iconset/icon_256x256.png
+          sips -z 512 512   logo.png --out logo.iconset/icon_256x256@2x.png
+          sips -z 512 512   logo.png --out logo.iconset/icon_512x512.png
+          sips -z 1024 1024 logo.png --out logo.iconset/icon_512x512@2x.png
+          iconutil -c icns logo.iconset -o logo.icns
+          rm -rf logo.iconset
+
+      - name: Build .app
+        run: pyinstaller GlacierAI_mac.spec --noconfirm
+
+      - name: Ad-hoc codesign
+        run: |
+          codesign --force --deep --sign - dist/GlacierAI.app
+          codesign --verify --deep --strict --verbose=2 dist/GlacierAI.app || true
+
+      - name: Package as DMG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cd dist
+          mkdir -p dmg-staging
+          cp -R GlacierAI.app dmg-staging/
+          ln -s /Applications dmg-staging/Applications
+          cp ../packaging/mac/首次使用必读.txt dmg-staging/
+          cp ../packaging/mac/一键修复并打开.command dmg-staging/
+          chmod +x dmg-staging/一键修复并打开.command
+          hdiutil create -volname "GlacierAI ${VERSION}" \
+                         -srcfolder dmg-staging \
+                         -ov -format UDZO \
+                         "GlacierAI_${VERSION}_mac.dmg"
+          rm -rf dmg-staging
+
+      - name: Zip .app as fallback
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cd dist
+          mkdir -p zip-staging
+          cp -R GlacierAI.app zip-staging/
+          cp ../packaging/mac/首次使用必读.txt zip-staging/
+          cp ../packaging/mac/一键修复并打开.command zip-staging/
+          chmod +x zip-staging/一键修复并打开.command
+          ditto -c -k --keepParent zip-staging "GlacierAI_${VERSION}_mac.zip"
+          rm -rf zip-staging
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: GlacierAI-mac-${{ github.ref_name }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.dmg
+            dist/*.zip
+          generate_release_notes: true
