@@ -45,7 +45,7 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch=None,
+    target_arch='x86_64',
     codesign_identity=None,
     entitlements_file=None,
 )
@@ -71,5 +71,6 @@ app = BUNDLE(
         'CFBundleShortVersionString': '3.0.0',
         'CFBundleVersion': '3.0.0',
         'NSPrincipalClass': 'NSApplication',
+        'LSMinimumSystemVersion': '11.0',
     },
 )
