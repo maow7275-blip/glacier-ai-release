@@ -1,14 +1,15 @@
-# Glacier AI
+# Glacier AI for macOS
 
-基于 [hfsyapi.cn](https://www.hfsyapi.cn) 的图片 / 视频生成桌面工具，支持 Windows 和 macOS。
+基于 [hfsyapi.cn](https://www.hfsyapi.cn) 的图片 / 视频生成桌面工具，**macOS 专用版**。
+
+> Windows 版请直接联系开发者获取。
 
 ## 下载（V3.0.0）
 
-| 平台 | 文件 | 大小 |
+| 文件 | 大小 | 说明 |
 | --- | --- | --- |
-| **Windows** | [GlacierAI_V3.0.exe](https://github.com/maow7275-blip/glacier-ai-release/releases/download/v3.0.0/GlacierAI_V3.0.exe) | ~150 MB |
-| **macOS (DMG)** | [GlacierAI_3.0.0_mac.dmg](https://github.com/maow7275-blip/glacier-ai-release/releases/download/v3.0.0/GlacierAI_3.0.0_mac.dmg) | 31 MB |
-| **macOS (ZIP)** | [GlacierAI_3.0.0_mac.zip](https://github.com/maow7275-blip/glacier-ai-release/releases/download/v3.0.0/GlacierAI_3.0.0_mac.zip) | 27 MB |
+| [GlacierAI_3.0.0_mac.dmg](https://github.com/maow7275-blip/glacier-ai-release/releases/download/v3.0.0/GlacierAI_3.0.0_mac.dmg) | 31 MB | 推荐 |
+| [GlacierAI_3.0.0_mac.zip](https://github.com/maow7275-blip/glacier-ai-release/releases/download/v3.0.0/GlacierAI_3.0.0_mac.zip) | 27 MB | 备用 |
 
 > 所有版本：[Releases 页](https://github.com/maow7275-blip/glacier-ai-release/releases)
 
@@ -22,20 +23,12 @@
 
 ## 使用步骤
 
-### Windows
-
-1. 下载 `GlacierAI_V3.0.exe`，双击运行（首次打开 Windows Defender 可能拦截，选「仍要运行」）
-2. 在登录页输入 hfsyapi 的 API Key（[如何获取？](https://www.hfsyapi.cn)）
-3. 勾选「记住 API Key」可下次免输入
-4. 进入主界面即可生成图片 / 视频
-
-### macOS
-
 1. 下载 `GlacierAI_3.0.0_mac.dmg`，双击挂载
 2. 把 `GlacierAI` 拖到 `Applications` 文件夹
 3. **首次打开**：双击 dmg 里的「一键修复并打开.command」（绕过未签名应用拦截）
 4. 之后从 启动台 / 应用程序 双击 `GlacierAI` 即可
 5. 详细说明见 dmg 里的「首次使用必读.txt」
+6. 在登录页输入 hfsyapi 的 API Key，勾选「记住 API Key」可下次免输入
 
 ## 更新说明
 
