@@ -45,7 +45,7 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch='x86_64',
+    target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
 )
@@ -65,12 +65,11 @@ app = BUNDLE(
     name='GlacierAI.app',
     icon='logo.icns',
     bundle_identifier='com.glacier.ai.tool',
-    version='3.0.0',
+    version='3.0.1',
     info_plist={
         'NSHighResolutionCapable': 'True',
-        'CFBundleShortVersionString': '3.0.0',
-        'CFBundleVersion': '3.0.0',
+        'CFBundleShortVersionString': '3.0.1',
+        'CFBundleVersion': '3.0.1',
         'NSPrincipalClass': 'NSApplication',
-        'LSMinimumSystemVersion': '11.0',
     },
 )

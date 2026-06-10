@@ -10,7 +10,18 @@ permissions:
 
 jobs:
   build-mac:
-    runs-on: macos-13
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13
+            arch: intel
+            arch_label: Intel
+          - runner: macos-14
+            arch: arm64
+            arch_label: Apple Silicon
+
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Checkout
@@ -53,6 +64,7 @@ jobs:
       - name: Package as DMG
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
+          ARCH="${{ matrix.arch }}"
           cd dist
           mkdir -p dmg-staging
           cp -R GlacierAI.app dmg-staging/
@@ -60,28 +72,29 @@ jobs:
           cp ../packaging/mac/首次使用必读.txt dmg-staging/
           cp ../packaging/mac/一键修复并打开.command dmg-staging/
           chmod +x dmg-staging/一键修复并打开.command
-          hdiutil create -volname "GlacierAI ${VERSION}" \
+          hdiutil create -volname "GlacierAI ${VERSION} ${ARCH}" \
                          -srcfolder dmg-staging \
                          -ov -format UDZO \
-                         "GlacierAI_${VERSION}_mac.dmg"
+                         "GlacierAI_${VERSION}_mac_${ARCH}.dmg"
           rm -rf dmg-staging
 
       - name: Zip .app as fallback
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
+          ARCH="${{ matrix.arch }}"
           cd dist
           mkdir -p zip-staging
           cp -R GlacierAI.app zip-staging/
           cp ../packaging/mac/首次使用必读.txt zip-staging/
           cp ../packaging/mac/一键修复并打开.command zip-staging/
           chmod +x zip-staging/一键修复并打开.command
-          ditto -c -k --keepParent zip-staging "GlacierAI_${VERSION}_mac.zip"
+          ditto -c -k --keepParent zip-staging "GlacierAI_${VERSION}_mac_${ARCH}.zip"
           rm -rf zip-staging
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: GlacierAI-mac-${{ github.ref_name }}
+          name: GlacierAI-mac-${{ matrix.arch }}-${{ github.ref_name }}
           path: |
             dist/*.dmg
             dist/*.zip

@@ -4,13 +4,16 @@
 
 > Windows 版请直接联系开发者获取。
 
-## 下载（V3.0.0）
+## 下载（V3.0.1）
 
-| 文件 | 大小 | 说明 |
+请按你的 Mac 机型选择对应版本（左上角苹果图标 → 关于本机查看）：
+
+| 机型 | 推荐（DMG） | 备用（ZIP） |
 | --- | --- | --- |
-| [GlacierAI_3.0.0_mac.dmg](https://github.com/maow7275-blip/glacier-ai-release/releases/download/v3.0.0/GlacierAI_3.0.0_mac.dmg) | 31 MB | 推荐 |
-| [GlacierAI_3.0.0_mac.zip](https://github.com/maow7275-blip/glacier-ai-release/releases/download/v3.0.0/GlacierAI_3.0.0_mac.zip) | 27 MB | 备用 |
+| **Apple Silicon**（M1/M2/M3/M4 等 M 系列） | [GlacierAI_3.0.1_mac_arm64.dmg](https://github.com/maow7275-blip/glacier-ai-release/releases/download/v3.0.1/GlacierAI_3.0.1_mac_arm64.dmg) | [GlacierAI_3.0.1_mac_arm64.zip](https://github.com/maow7275-blip/glacier-ai-release/releases/download/v3.0.1/GlacierAI_3.0.1_mac_arm64.zip) |
+| **Intel** Mac | [GlacierAI_3.0.1_mac_intel.dmg](https://github.com/maow7275-blip/glacier-ai-release/releases/download/v3.0.1/GlacierAI_3.0.1_mac_intel.dmg) | [GlacierAI_3.0.1_mac_intel.zip](https://github.com/maow7275-blip/glacier-ai-release/releases/download/v3.0.1/GlacierAI_3.0.1_mac_intel.zip) |
 
+> 下错版本会出现「打不开 / 闪退」，换对应版本即可。
 > 所有版本：[Releases 页](https://github.com/maow7275-blip/glacier-ai-release/releases)
 
 ## 功能
@@ -23,7 +26,7 @@
 
 ## 使用步骤
 
-1. 下载 `GlacierAI_3.0.0_mac.dmg`，双击挂载
+1. 按机型下载对应的 `GlacierAI_3.0.1_mac_arm64.dmg` 或 `GlacierAI_3.0.1_mac_intel.dmg`，双击挂载
 2. 把 `GlacierAI` 拖到 `Applications` 文件夹
 3. **首次打开**：双击 dmg 里的「一键修复并打开.command」（绕过未签名应用拦截）
 4. 之后从 启动台 / 应用程序 双击 `GlacierAI` 即可
