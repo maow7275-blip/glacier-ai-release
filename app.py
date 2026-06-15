@@ -3,6 +3,7 @@ import os
 import json
 import base64
 import math
+from string import Template
 import requests
 from datetime import datetime
 from PyQt5.QtWidgets import (
@@ -197,6 +198,12 @@ MODEL_QUALITY = {
 GEMINI_MODELS = {"gemini-3-pro-image-preview"}
 GEMINI_MAX_REFERENCE_IMAGES = 4
 
+IMAGE_MODEL_MAX_REFS = {
+    "gpt-image-2": 6,
+    "gpt-image-2pro": 4,
+    "gemini-3-pro-image-preview": 4,
+}
+
 QUALITY_TO_API = {"1k": "low", "2k": "medium", "4k": "high"}
 
 VIDEO_SIZES = {"横屏": "landscape", "竖屏": "portrait"}
@@ -262,20 +269,21 @@ def get_or_make_thumb_for_video(video_path):
 VIDEO_MODELS = ["sora-2", "sd-2", "sd-2-vip", "Kling Omni"]
 VIDEO_MODEL_DURATIONS = {
     "sora-2": ["4", "8", "12"],
-    "sd-2": ["5", "8", "10", "12", "15"],
-    "sd-2-vip": ["5", "8", "10", "12", "15"],
+    "sd-2": [str(i) for i in range(4, 16)],
+    "sd-2-vip": [str(i) for i in range(4, 16)],
     "Kling Omni": ["3", "5", "8", "10", "12", "15"],
 }
-VIDEO_PROMPT_LIMIT = {"sd-2": 1500, "sd-2-vip": 1500, "Kling Omni": 1500}
+VIDEO_PROMPT_LIMIT = {"sd-2": 10000, "sd-2-vip": 10000, "Kling Omni": 1500}
 VIDEO_MODEL_ORIENTATIONS = {
     "sora-2": {"横屏": "landscape", "竖屏": "portrait"},
     "sd-2": {"横屏": "landscape", "竖屏": "portrait"},
     "sd-2-vip": {"横屏": "landscape", "竖屏": "portrait"},
     "Kling Omni": {"横屏": "landscape", "竖屏": "portrait", "方屏": "square"},
 }
-VIDEO_MODEL_MAX_IMAGES_BASE = {"sora-2": 1, "sd-2": 4, "sd-2-vip": 4, "Kling Omni": 7}
-VIDEO_MODEL_MAX_IMAGES_WITH_VIDEO = {"sora-2": 1, "sd-2": 4, "sd-2-vip": 4, "Kling Omni": 4}
+VIDEO_MODEL_MAX_IMAGES_BASE = {"sora-2": 1, "sd-2": 9, "sd-2-vip": 9, "Kling Omni": 7}
+VIDEO_MODEL_MAX_IMAGES_WITH_VIDEO = {"sora-2": 1, "sd-2": 9, "sd-2-vip": 9, "Kling Omni": 4}
 VIDEO_MODEL_MAX_VIDEOS = {"sora-2": 0, "sd-2": 3, "sd-2-vip": 3, "Kling Omni": 1}
+VIDEO_MODEL_MAX_AUDIOS = {"sora-2": 0, "sd-2": 3, "sd-2-vip": 3, "Kling Omni": 0}
 
 
 # 注意：下拉项的灰色高光改用纯 QSS 实现（见 DARK_STYLE 中
@@ -296,7 +304,6 @@ def _patched_combo_init(self, *args, **kwargs):
         try:
             container = view.window()
             if container is not None:
-                container.setStyleSheet("background-color: #000000; border: none;")
                 container.setContentsMargins(0, 0, 0, 0)
         except Exception:
             pass
@@ -305,40 +312,197 @@ def _patched_combo_init(self, *args, **kwargs):
 
 QComboBox.__init__ = _patched_combo_init
 
-DARK_STYLE = """
+
+# ============================================================
+# 主题系统（P1）
+# 三套主题：暗夜蓝（dark_blue）、简洁明亮（light）、爱马仕橙（hermes）
+# 每个 token 都必须三套都填，模板里通过 {key} 引用
+# ============================================================
+THEMES = {
+    "dark_blue": {
+        "name": "暗夜蓝",
+        "is_dark": True,
+        "bg_main": "#0a0e1a",
+        "bg_titlebar": "rgba(2, 6, 20, 230)",
+        "bg_sidebar": "rgba(5, 10, 25, 230)",
+        "bg_card": "rgba(15, 21, 36, 153)",
+        "bg_card_solid": "#0f1524",
+        "bg_input": "rgba(15, 23, 42, 0.6)",
+        "bg_input_strong": "rgba(15, 23, 42, 0.4)",
+        "bg_combo_pop": "#000000",
+        "bg_combo_pop_item_sel": "#4a4a4a",
+        "border_soft": "rgba(125, 211, 252, 0.1)",
+        "border_focus": "rgba(125, 211, 252, 0.4)",
+        "border_top_alpha": "rgba(255, 255, 255, 0.1)",
+        "text_primary": "#e0e8f0",
+        "text_input": "#a0b4c4",
+        "text_secondary": "#94a3b8",
+        "text_muted": "#64748b",
+        "text_dim": "#475569",
+        "accent": "#7dd3fc",
+        "accent_strong": "#bae6fd",
+        "accent_soft": "rgba(125, 211, 252, 0.15)",
+        "accent_softer": "rgba(125, 211, 252, 0.1)",
+        "accent_hover": "rgba(125, 211, 252, 0.25)",
+        "accent_press": "rgba(125, 211, 252, 0.35)",
+        "accent_border": "rgba(125, 211, 252, 0.3)",
+        "accent_selection": "rgba(125, 211, 252, 0.3)",
+        "scrollbar_track": "rgba(15, 21, 36, 0.3)",
+        "scrollbar_thumb": "rgba(125, 211, 252, 0.2)",
+        "scrollbar_thumb_hover": "rgba(125, 211, 252, 0.35)",
+        "preview_dash": "rgba(125, 211, 252, 0.2)",
+        "btn_disabled_bg": "rgba(30, 41, 59, 0.5)",
+        "btn_disabled_border": "rgba(100, 116, 139, 0.2)",
+        "btn_disabled_text": "#475569",
+        "save_disabled_text": "#334155",
+        "section_badge_bg": "rgba(30, 41, 59, 0.5)",
+        "down_arrow_color": "#64748b",
+        "footer_bg": "rgba(15, 21, 36, 0.6)",
+        "footer_brand": "rgba(125, 211, 252, 0.4)",
+        "version_color": "#ff9f1c",
+    },
+    "light": {
+        "name": "简洁明亮",
+        "is_dark": False,
+        "bg_main": "#faf8ff",
+        "bg_titlebar": "rgba(255, 255, 255, 240)",
+        "bg_sidebar": "#ffffff",
+        "bg_card": "#ffffff",
+        "bg_card_solid": "#ffffff",
+        "bg_input": "#f2f3ff",
+        "bg_input_strong": "#f2f3ff",
+        "bg_combo_pop": "#ffffff",
+        "bg_combo_pop_item_sel": "#dce1ff",
+        "border_soft": "#c3c5d9",
+        "border_focus": "#0043c8",
+        "border_top_alpha": "rgba(19, 27, 46, 0.08)",
+        "text_primary": "#131b2e",
+        "text_input": "#131b2e",
+        "text_secondary": "#434656",
+        "text_muted": "#737688",
+        "text_dim": "#9aa0b4",
+        "accent": "#0043c8",
+        "accent_strong": "#0057ff",
+        "accent_soft": "#dce1ff",
+        "accent_softer": "#eaedff",
+        "accent_hover": "#c7d1f8",
+        "accent_press": "#b0bef5",
+        "accent_border": "#0043c8",
+        "accent_selection": "#dce1ff",
+        "scrollbar_track": "rgba(19, 27, 46, 0.04)",
+        "scrollbar_thumb": "rgba(0, 67, 200, 0.25)",
+        "scrollbar_thumb_hover": "rgba(0, 67, 200, 0.45)",
+        "preview_dash": "#c3c5d9",
+        "btn_disabled_bg": "#e7e9f3",
+        "btn_disabled_border": "#c3c5d9",
+        "btn_disabled_text": "#9aa0b4",
+        "save_disabled_text": "#b0b6c8",
+        "section_badge_bg": "#eaedff",
+        "down_arrow_color": "#737688",
+        "footer_bg": "#f2f3ff",
+        "footer_brand": "rgba(0, 67, 200, 0.55)",
+        "version_color": "#0043c8",
+    },
+    "hermes": {
+        "name": "爱马仕橙",
+        "is_dark": False,
+        "bg_main": "#fbf9f9",
+        "bg_titlebar": "rgba(255, 255, 255, 240)",
+        "bg_sidebar": "#ffffff",
+        "bg_card": "#ffffff",
+        "bg_card_solid": "#ffffff",
+        "bg_input": "#f5f3f3",
+        "bg_input_strong": "#fbf9f9",
+        "bg_combo_pop": "#ffffff",
+        "bg_combo_pop_item_sel": "#ffdbc9",
+        "border_soft": "rgba(28, 28, 28, 0.10)",
+        "border_focus": "#ff7700",
+        "border_top_alpha": "rgba(28, 28, 28, 0.08)",
+        "text_primary": "#1b1c1c",
+        "text_input": "#1b1c1c",
+        "text_secondary": "#5f5e5e",
+        "text_muted": "#8c7163",
+        "text_dim": "#a19f9a",
+        "accent": "#ff7700",
+        "accent_strong": "#9b4600",
+        "accent_soft": "#ffdbc9",
+        "accent_softer": "#fff1e8",
+        "accent_hover": "#ffc6a8",
+        "accent_press": "#ffb68d",
+        "accent_border": "#ff7700",
+        "accent_selection": "#ffdbc9",
+        "scrollbar_track": "rgba(28, 28, 28, 0.05)",
+        "scrollbar_thumb": "rgba(255, 119, 0, 0.45)",
+        "scrollbar_thumb_hover": "#ff7700",
+        "preview_dash": "#e0c0b0",
+        "btn_disabled_bg": "#efeded",
+        "btn_disabled_border": "#dbdad9",
+        "btn_disabled_text": "#a19f9a",
+        "save_disabled_text": "#c9c6c1",
+        "section_badge_bg": "#efeded",
+        "down_arrow_color": "#8c7163",
+        "footer_bg": "#f5f3f3",
+        "footer_brand": "rgba(155, 70, 0, 0.65)",
+        "version_color": "#9b4600",
+    },
+}
+
+DEFAULT_THEME = "light"
+
+
+def get_theme(name):
+    return THEMES.get(name, THEMES[DEFAULT_THEME])
+
+
+def build_main_style(theme_name):
+    t = get_theme(theme_name)
+    return Template(MAIN_STYLE_TEMPLATE).safe_substitute(t)
+
+
+def build_login_style(theme_name):
+    t = get_theme(theme_name)
+    return Template(LOGIN_STYLE_TEMPLATE).safe_substitute(t)
+
+
+def build_settings_dialog_style(theme_name):
+    t = get_theme(theme_name)
+    return Template(SETTINGS_DIALOG_STYLE_TEMPLATE).safe_substitute(t)
+
+
+MAIN_STYLE_TEMPLATE = """
 QWidget {
     font-family: "Segoe UI", "Microsoft YaHei";
     font-size: 14px;
-    color: #e0e8f0;
+    color: $text_primary;
 }
 QFrame#titleBar {
-    background-color: rgba(2, 6, 20, 230);
-    border-bottom: 1px solid rgba(125, 211, 252, 0.1);
+    background-color: $bg_titlebar;
+    border-bottom: 1px solid $border_soft;
 }
 QLabel#titleBrand {
-    color: #7dd3fc;
+    color: $accent;
     font-size: 18px;
     font-weight: 700;
     font-style: italic;
 }
 QLabel#titleSub {
-    color: #64748b;
+    color: $text_muted;
     font-size: 13px;
 }
 QPushButton#winBtn {
     background: transparent;
     border: none;
-    color: #7dd3fc;
+    color: $accent;
     font-size: 16px;
     padding: 6px 12px;
 }
 QPushButton#winBtn:hover {
-    background-color: rgba(125, 211, 252, 0.1);
+    background-color: $accent_softer;
 }
 QPushButton#winBtnClose {
     background: transparent;
     border: none;
-    color: #7dd3fc;
+    color: $accent;
     font-size: 16px;
     padding: 6px 12px;
 }
@@ -347,17 +511,17 @@ QPushButton#winBtnClose:hover {
     color: #ff6b6b;
 }
 QFrame#sideNav {
-    background-color: rgba(5, 10, 25, 230);
-    border-right: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: $bg_sidebar;
+    border-right: 1px solid $border_top_alpha;
 }
 QLabel#navTitle {
-    color: #7dd3fc;
+    color: $accent;
     font-size: 12px;
     font-weight: 800;
     letter-spacing: 3px;
 }
 QLabel#navVersion {
-    color: #64748b;
+    color: $text_muted;
     font-size: 11px;
     font-family: "Consolas", "Courier New";
 }
@@ -365,83 +529,83 @@ QPushButton#navBtn {
     background: transparent;
     border: none;
     border-right: 2px solid transparent;
-    color: #94a3b8;
+    color: $text_secondary;
     font-size: 14px;
     font-weight: 500;
     text-align: left;
     padding: 12px 18px;
 }
 QPushButton#navBtn:hover {
-    background-color: rgba(255, 255, 255, 0.05);
-    color: #e0f2fe;
+    background-color: $accent_softer;
+    color: $text_primary;
 }
 QPushButton#navBtnActive {
-    background-color: rgba(125, 211, 252, 0.12);
+    background-color: $accent_soft;
     border: none;
-    border-right: 2px solid #7dd3fc;
-    color: #bae6fd;
+    border-right: 2px solid $accent;
+    color: $accent_strong;
     font-size: 14px;
     font-weight: 500;
     text-align: left;
     padding: 12px 18px;
 }
 QLabel#navKeyLabel {
-    color: #64748b;
+    color: $text_muted;
     font-size: 12px;
     font-family: "Consolas", "Courier New";
 }
 QFrame#glassPanel {
-    background-color: rgba(15, 21, 36, 153);
-    border: 1px solid rgba(125, 211, 252, 0.1);
+    background-color: $bg_card;
+    border: 1px solid $border_soft;
     border-radius: 12px;
 }
 QLabel#sectionLabel {
-    color: #e0e8f0;
+    color: $text_primary;
     font-size: 15px;
     font-weight: 600;
 }
 QLabel#sectionBadge {
-    color: #64748b;
+    color: $text_muted;
     font-size: 11px;
     font-family: "Consolas", "Courier New";
-    background-color: rgba(30, 41, 59, 0.5);
+    background-color: $btn_disabled_bg;
     padding: 2px 6px;
     border-radius: 3px;
 }
 QLabel#paramLabel {
-    color: #94a3b8;
+    color: $text_secondary;
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 2px;
 }
 QTextEdit#promptInput {
-    background-color: rgba(15, 23, 42, 0.4);
-    border: 1px solid rgba(125, 211, 252, 0.1);
+    background-color: $bg_input_strong;
+    border: 1px solid $border_soft;
     border-radius: 8px;
     padding: 12px;
     font-size: 14px;
-    color: #a0b4c4;
-    selection-background-color: rgba(125, 211, 252, 0.3);
+    color: $text_input;
+    selection-background-color: $accent_border;
 }
 QTextEdit#promptInput:focus {
-    border: 1px solid rgba(125, 211, 252, 0.4);
+    border: 1px solid $border_focus;
 }
 QComboBox {
-    background-color: rgba(15, 23, 42, 0.6);
-    border: 1px solid rgba(125, 211, 252, 0.1);
+    background-color: $bg_input;
+    border: 1px solid $border_soft;
     border-radius: 8px;
     padding: 10px 14px;
     font-family: "Inter", "Source Han Sans SC", "思源黑体", "Microsoft YaHei";
     font-size: 15px;
-    color: #a0b4c4;
+    color: $text_input;
     min-width: 100px;
     min-height: 22px;
 }
 QComboBox:hover {
-    border-color: rgba(125, 211, 252, 0.3);
+    border-color: $accent_border;
 }
 QComboBox:focus {
-    border-color: rgba(125, 211, 252, 0.4);
+    border-color: $border_focus;
 }
 QComboBox::drop-down {
     border: none;
@@ -451,111 +615,111 @@ QComboBox::down-arrow {
     image: none;
     border-left: 4px solid transparent;
     border-right: 4px solid transparent;
-    border-top: 5px solid #64748b;
+    border-top: 5px solid $text_muted;
     margin-right: 8px;
 }
 QComboBox QAbstractItemView {
-    background-color: #000000;
-    border: none;
+    background-color: $bg_combo_pop;
+    border: 1px solid $border_soft;
     border-radius: 10px;
-    selection-background-color: #4a4a4a;
-    selection-color: #ffffff;
-    color: #cbd5e1;
+    selection-background-color: $bg_combo_pop_item_sel;
+    selection-color: $text_primary;
+    color: $text_input;
     padding: 6px;
     outline: none;
     font-family: "Inter", "Source Han Sans SC", "思源黑体", "Microsoft YaHei";
     font-size: 14px;
 }
 QComboBox QListView {
-    background-color: #000000;
+    background-color: $bg_combo_pop;
     border: none;
     outline: none;
 }
 QComboBox QFrame {
     border: none;
-    background-color: #000000;
+    background-color: $bg_combo_pop;
 }
 QComboBox QAbstractItemView::item {
-    background-color: #000000;
-    color: #cbd5e1;
+    background-color: $bg_combo_pop;
+    color: $text_input;
     padding: 8px 14px;
     min-height: 28px;
     border: none;
 }
 QComboBox QAbstractItemView::item:selected {
-    background-color: #4a4a4a;
-    color: #ffffff;
+    background-color: $bg_combo_pop_item_sel;
+    color: $text_primary;
 }
 QComboBox QAbstractItemView::item:hover {
-    background-color: #4a4a4a;
-    color: #ffffff;
+    background-color: $bg_combo_pop_item_sel;
+    color: $text_primary;
 }
 QPushButton#generateBtn {
-    background-color: rgba(125, 211, 252, 0.15);
-    border: 1px solid rgba(125, 211, 252, 0.3);
+    background-color: $accent_soft;
+    border: 1px solid $accent_border;
     border-radius: 12px;
-    color: #7dd3fc;
+    color: $accent;
     font-size: 18px;
     font-weight: 800;
     padding: 16px;
 }
 QPushButton#generateBtn:hover {
-    background-color: rgba(125, 211, 252, 0.25);
+    background-color: $accent_hover;
 }
 QPushButton#generateBtn:pressed {
-    background-color: rgba(125, 211, 252, 0.35);
+    background-color: $accent_press;
 }
 QPushButton#generateBtn:disabled {
-    background-color: rgba(30, 41, 59, 0.5);
-    border-color: rgba(100, 116, 139, 0.2);
-    color: #475569;
+    background-color: $btn_disabled_bg;
+    border-color: $btn_disabled_border;
+    color: $text_dim;
 }
 QPushButton#saveBtn {
-    background-color: rgba(125, 211, 252, 0.1);
-    border: 1px solid rgba(125, 211, 252, 0.2);
+    background-color: $border_soft;
+    border: 1px solid $scrollbar_thumb;
     border-radius: 8px;
-    color: #7dd3fc;
+    color: $accent;
     font-size: 15px;
     font-weight: 600;
     padding: 10px 24px;
 }
 QPushButton#saveBtn:hover {
-    background-color: rgba(125, 211, 252, 0.2);
+    background-color: $scrollbar_thumb;
 }
 QPushButton#saveBtn:disabled {
-    background-color: rgba(30, 41, 59, 0.3);
-    border-color: rgba(100, 116, 139, 0.1);
-    color: #334155;
+    background-color: $btn_disabled_bg;
+    border-color: $btn_disabled_border;
+    color: $save_disabled_text;
 }
 QFrame#previewArea {
-    background-color: rgba(15, 21, 36, 0.75);
-    border: 2px dashed rgba(125, 211, 252, 0.2);
+    background-color: $bg_card;
+    border: 2px dashed $scrollbar_thumb;
     border-radius: 16px;
 }
 QLabel#previewPlaceholder {
-    color: #475569;
+    color: $text_dim;
     font-size: 15px;
 }
 QLabel#previewTitle {
-    color: #e0e8f0;
+    color: $text_primary;
     font-size: 18px;
     font-weight: 700;
 }
 QLabel#previewDesc {
-    color: #94a3b8;
+    color: $text_secondary;
     font-size: 14px;
 }
 QFrame#footerBar {
-    background-color: rgba(15, 21, 36, 0.6);
-    border-top: 1px solid rgba(125, 211, 252, 0.1);
+    background-color: $footer_bg;
+    border-top: 1px solid $border_soft;
 }
 QLabel#footerText {
-    color: #64748b;
+    color: $text_muted;
     font-size: 11px;
     font-family: "Consolas", "Courier New";
 }
 QLabel#footerBrand {
-    color: rgba(125, 211, 252, 0.4);
+    color: $border_focus;
     font-size: 11px;
     font-weight: 700;
     font-family: "Consolas", "Courier New";
@@ -565,17 +729,17 @@ QScrollArea {
     background: transparent;
 }
 QScrollBar:vertical {
-    background: rgba(15, 21, 36, 0.3);
+    background: $scrollbar_track;
     width: 6px;
     border-radius: 3px;
 }
 QScrollBar::handle:vertical {
-    background: rgba(125, 211, 252, 0.2);
+    background: $scrollbar_thumb;
     border-radius: 3px;
     min-height: 30px;
 }
 QScrollBar::handle:vertical:hover {
-    background: rgba(125, 211, 252, 0.35);
+    background: $accent_press;
 }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
     height: 0px;
@@ -584,136 +748,136 @@ QScrollBar:horizontal {
     height: 0px;
 }
 QLineEdit#refUrlInput {
-    background-color: rgba(15, 23, 42, 0.6);
-    border: 1px solid rgba(125, 211, 252, 0.1);
+    background-color: $bg_input;
+    border: 1px solid $border_soft;
     border-radius: 8px;
     padding: 10px 14px;
     font-size: 14px;
-    color: #a0b4c4;
+    color: $text_input;
 }
 QLineEdit#refUrlInput:focus {
-    border: 1px solid rgba(125, 211, 252, 0.4);
+    border: 1px solid $border_focus;
 }
 QPushButton#refBtn {
-    background-color: rgba(125, 211, 252, 0.1);
-    border: 1px solid rgba(125, 211, 252, 0.15);
+    background-color: $border_soft;
+    border: 1px solid $accent_soft;
     border-radius: 8px;
-    color: #7dd3fc;
+    color: $accent;
     font-size: 14px;
     font-weight: 600;
     padding: 9px 18px;
 }
 QPushButton#refBtn:hover {
-    background-color: rgba(125, 211, 252, 0.2);
+    background-color: $scrollbar_thumb;
 }
 QLabel#thumbLabel {
     border: 2px solid transparent;
     border-radius: 8px;
     padding: 4px;
-    background-color: rgba(15, 21, 36, 0.4);
+    background-color: $bg_input_strong;
 }
 QLabel#thumbLabel:hover {
-    border-color: rgba(125, 211, 252, 0.3);
-    background-color: rgba(125, 211, 252, 0.05);
+    border-color: $accent_border;
+    background-color: $accent_softer;
 }
 QFrame#videoThumb {
     border: 2px solid transparent;
     border-radius: 8px;
     padding: 8px;
-    background-color: rgba(15, 21, 36, 0.4);
+    background-color: $bg_input_strong;
 }
 QFrame#videoThumb:hover {
-    border-color: rgba(125, 211, 252, 0.3);
-    background-color: rgba(125, 211, 252, 0.05);
+    border-color: $accent_border;
+    background-color: $accent_softer;
 }
 """
 
-LOGIN_STYLE = """
+LOGIN_STYLE_TEMPLATE = """
 QDialog {
-    background-color: #0a0e1a;
+    background-color: $bg_main;
 }
 QFrame#loginCard {
-    background-color: rgba(15, 21, 36, 0.8);
-    border: 1px solid rgba(125, 211, 252, 0.1);
+    background-color: $bg_card;
+    border: 1px solid $border_soft;
     border-radius: 16px;
 }
 QLabel#loginTitle {
-    color: #7dd3fc;
+    color: $accent;
     font-size: 24px;
     font-weight: 700;
     font-style: italic;
 }
 QLabel#loginSubtitle {
-    color: #64748b;
+    color: $text_muted;
     font-size: 14px;
 }
 QLabel#loginVersion {
-    color: rgba(125, 211, 252, 0.55);
+    color: $footer_brand;
     font-size: 12px;
     font-weight: 700;
     font-family: "Consolas", "Courier New";
     letter-spacing: 1px;
 }
 QLabel#loginHint {
-    color: #94a3b8;
+    color: $text_secondary;
     font-size: 14px;
 }
 QLineEdit#keyInput {
-    background-color: rgba(15, 23, 42, 0.6);
-    border: 1px solid rgba(125, 211, 252, 0.1);
+    background-color: $bg_input;
+    border: 1px solid $border_soft;
     border-radius: 8px;
     padding: 11px 14px;
     font-size: 15px;
-    color: #a0b4c4;
+    color: $text_input;
 }
 QLineEdit#keyInput:focus {
-    border: 1px solid rgba(125, 211, 252, 0.4);
+    border: 1px solid $border_focus;
 }
 QPushButton#loginBtn {
-    background-color: rgba(125, 211, 252, 0.15);
-    border: 1px solid rgba(125, 211, 252, 0.3);
-    color: #7dd3fc;
+    background-color: $accent_soft;
+    border: 1px solid $accent_border;
+    color: $accent;
     border-radius: 8px;
     font-size: 16px;
     font-weight: 700;
     padding: 13px;
 }
 QPushButton#loginBtn:hover {
-    background-color: rgba(125, 211, 252, 0.25);
+    background-color: $accent_hover;
 }
 QPushButton#loginBtn:pressed {
-    background-color: rgba(125, 211, 252, 0.35);
+    background-color: $accent_press;
 }
 QPushButton#toggleBtn {
     border: none;
-    color: #7dd3fc;
+    color: $accent;
     font-size: 14px;
     background: transparent;
 }
 QPushButton#tutorialBtn {
     border: none;
-    color: #64748b;
+    color: $text_muted;
     font-size: 14px;
     background: transparent;
 }
 QPushButton#tutorialBtn:hover {
-    color: #7dd3fc;
+    color: $accent;
 }
 QCheckBox#rememberChk {
-    color: #94a3b8;
+    color: $text_secondary;
     font-size: 13px;
     spacing: 8px;
 }
 QCheckBox#rememberChk::indicator {
     width: 16px;
     height: 16px;
-    border: 1px solid rgba(125, 211, 252, 0.3);
+    border: 1px solid $accent_border;
     border-radius: 3px;
-    background-color: rgba(15, 23, 42, 0.6);
+    background-color: $bg_input;
 }
 QCheckBox#rememberChk::indicator:checked {
-    background-color: #7dd3fc;
-    border: 1px solid #7dd3fc;
+    background-color: $accent;
+    border: 1px solid $accent;
 }
 """
 
@@ -803,12 +967,12 @@ class TutorialDialog(QDialog):
 
 
 class KeyDialog(QDialog):
-    def __init__(self, parent=None, prefill_key=""):
+    def __init__(self, parent=None, prefill_key="", theme=None):
         super().__init__(parent)
         self.setWindowTitle("Glacier AI")
         self.setFixedSize(440, 460)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        self.setStyleSheet(LOGIN_STYLE)
+        self.setStyleSheet(build_login_style(theme or DEFAULT_THEME))
 
         logo_path = get_logo_path()
         if os.path.exists(logo_path):
@@ -831,7 +995,7 @@ class KeyDialog(QDialog):
         subtitle.setObjectName("loginSubtitle")
         card_layout.addWidget(subtitle)
 
-        version = QLabel("VERSION 3.0")
+        version = QLabel("VERSION 3.2")
         version.setObjectName("loginVersion")
         card_layout.addWidget(version)
 
@@ -1091,6 +1255,15 @@ class GenerateThread(QThread):
             print(f"[DEBUG] Response status={resp.status_code}, body={resp.text[:300]}", flush=True)
             if resp.status_code == 200:
                 break
+            if resp.status_code == 429 and attempt < max_retries:
+                try:
+                    wait = max(1, int(resp.headers.get("Retry-After", "5")))
+                except (TypeError, ValueError):
+                    wait = 5
+                print(f"[DEBUG] 429 limited, retry {attempt+1}/{max_retries} after {wait}s...", flush=True)
+                self.progress.emit(f"第{index+1}张被限流，{wait}秒后重试...")
+                _time.sleep(wait)
+                continue
             if resp.status_code in (500, 502, 503) and attempt < max_retries:
                 wait = (attempt + 1) * 3
                 print(f"[DEBUG] Retry {attempt+1}/{max_retries} after {wait}s...", flush=True)
@@ -1207,6 +1380,15 @@ class GenerateThread(QThread):
             print(f"[DEBUG] Gemini response status={resp.status_code}, body={resp.text[:300]}", flush=True)
             if resp.status_code == 200:
                 break
+            if resp.status_code == 429 and attempt < max_retries:
+                try:
+                    wait = max(1, int(resp.headers.get("Retry-After", "5")))
+                except (TypeError, ValueError):
+                    wait = 5
+                print(f"[DEBUG] 429 limited, retry {attempt+1}/{max_retries} after {wait}s...", flush=True)
+                self.progress.emit(f"第{index+1}张被限流，{wait}秒后重试...")
+                _time.sleep(wait)
+                continue
             if resp.status_code in (500, 502, 503) and attempt < max_retries:
                 wait = (attempt + 1) * 3
                 self.progress.emit(f"第{index+1}张遇到服务器错误，{wait}秒后重试...")
@@ -1284,7 +1466,7 @@ class VideoGenerateThread(QThread):
     error = pyqtSignal(int, str)
     all_done = pyqtSignal()
 
-    def __init__(self, api_key, prompt, size, duration, count=1, image_url=None, model="sora-2", video_refs=None, sd_size=None, start_image_url=None, end_image_url=None):
+    def __init__(self, api_key, prompt, size, duration, count=1, image_url=None, model="sora-2", video_refs=None, audio_refs=None, sd_size=None, sd_ratio=None, start_image_url=None, end_image_url=None):
         super().__init__()
         self.api_key = api_key
         self.prompt = prompt
@@ -1294,7 +1476,9 @@ class VideoGenerateThread(QThread):
         self.image_url = image_url
         self.model = model
         self.video_refs = video_refs
+        self.audio_refs = audio_refs
         self.sd_size = sd_size
+        self.sd_ratio = sd_ratio
         self.start_image_url = start_image_url
         self.end_image_url = end_image_url
 
@@ -1315,13 +1499,17 @@ class VideoGenerateThread(QThread):
             payload["size"] = "1080p"
         elif self.sd_size:
             payload["size"] = self.sd_size
+        if self.sd_ratio:
+            payload["ratio"] = self.sd_ratio
         if self.image_url:
             if isinstance(self.image_url, str):
                 payload["images"] = [self.image_url]
             else:
                 payload["images"] = list(self.image_url)
         if self.video_refs:
-            payload["video"] = list(self.video_refs)
+            payload["videos"] = list(self.video_refs)
+        if self.audio_refs:
+            payload["audios"] = list(self.audio_refs)
         if self.start_image_url:
             payload["start_image_url"] = self.start_image_url
         if self.end_image_url:
@@ -1335,8 +1523,26 @@ class VideoGenerateThread(QThread):
                 pass
 
         self.progress.emit(f"第{index+1}个视频: 正在提交请求...")
-        resp = requests.post(VIDEO_API_URL, headers=headers, json=payload, timeout=600)
-        _log("POST", f"status={resp.status_code}, body={resp.text[:800]}")
+        resp = None
+        for attempt in range(3):
+            resp = requests.post(VIDEO_API_URL, headers=headers, json=payload, timeout=600)
+            _log("POST", f"attempt={attempt}, status={resp.status_code}, body={resp.text[:800]}")
+            if resp.status_code == 200:
+                break
+            if resp.status_code == 429 and attempt < 2:
+                try:
+                    wait = max(1, int(resp.headers.get("Retry-After", "5")))
+                except (TypeError, ValueError):
+                    wait = 5
+                self.progress.emit(f"第{index+1}个视频被限流，{wait}秒后重试...")
+                time.sleep(wait)
+                continue
+            if resp.status_code in (500, 502, 503) and attempt < 2:
+                wait = (attempt + 1) * 3
+                self.progress.emit(f"第{index+1}个视频遇到服务器错误，{wait}秒后重试...")
+                time.sleep(wait)
+                continue
+            break
         if resp.status_code != 200:
             self.error.emit(index, f"第{index+1}个 API 错误 ({resp.status_code}): {resp.text[:300]}")
             return
@@ -1362,6 +1568,13 @@ class VideoGenerateThread(QThread):
                 continue
             if poll_resp.status_code != 200:
                 _log("POLL_HTTP", f"i={i}, status={poll_resp.status_code}, body={poll_resp.text[:300]}")
+                if poll_resp.status_code == 429:
+                    try:
+                        extra = max(0, int(poll_resp.headers.get("Retry-After", "0")))
+                    except (TypeError, ValueError):
+                        extra = 0
+                    if extra:
+                        time.sleep(extra)
                 continue
             try:
                 poll_data = poll_resp.json()
@@ -1377,7 +1590,7 @@ class VideoGenerateThread(QThread):
                 video_url = detail.get("url") or ""
             progress_pct = inner.get("progress", 0)
 
-            if status == "completed":
+            if status in ("completed", "success"):
                 if not video_url:
                     _log("NO_URL", f"poll_data={json.dumps(poll_data, ensure_ascii=False)[:600]}")
                     self.error.emit(index, f"第{index+1}个任务完成但未返回视频地址")
@@ -1393,7 +1606,7 @@ class VideoGenerateThread(QThread):
                 else:
                     self.error.emit(index, f"第{index+1}个视频下载失败 ({vid_resp.status_code})")
                 return
-            if status == "failed":
+            if status in ("failed", "failure"):
                 err_msg = inner.get("error") or inner.get("message") or poll_data.get("message") or "未知错误"
                 self.error.emit(index, f"第{index+1}个视频生成失败: {err_msg}")
                 return
@@ -1424,6 +1637,447 @@ class VideoGenerateThread(QThread):
         for t in threads:
             t.join()
         self.all_done.emit()
+
+
+class Task:
+    _id_counter = 0
+
+    @classmethod
+    def next_id(cls):
+        cls._id_counter += 1
+        return cls._id_counter
+
+    def __init__(self, kind, params, summary):
+        self.id = Task.next_id()
+        self.kind = kind
+        self.params = params
+        self.summary = summary
+        self.status = "pending"
+        self.results = []
+        self.error_msg = ""
+        self.thread = None
+        self.done_count = 0
+        self.total = int(summary.get("count", 1))
+        self.created_at = datetime.now()
+
+
+class TaskScheduler(QObject):
+    task_state_changed = pyqtSignal(int)
+    queue_changed = pyqtSignal()
+
+    def __init__(self, main_window, max_concurrent=3, max_queue=None):
+        super().__init__()
+        self.main_window = main_window
+        self.max_concurrent = max(1, min(5, int(max_concurrent)))
+        self.max_queue = max_queue  # None = 不限制
+        self.pending = []
+        self.running = {}
+        self.all_tasks = {}
+
+    def total_count(self):
+        return len(self.pending) + len(self.running)
+
+    def has_unfinished(self):
+        return self.total_count() > 0
+
+    def can_enqueue(self):
+        if self.max_queue is None:
+            return True
+        return self.total_count() < self.max_queue
+
+    def counts_by_kind(self):
+        img_run = sum(1 for t in self.running.values() if t.kind == "image")
+        vid_run = sum(1 for t in self.running.values() if t.kind == "video")
+        return img_run, vid_run, len(self.pending)
+
+    def enqueue(self, task):
+        if not self.can_enqueue():
+            return False
+        task.status = "pending"
+        self.pending.append(task)
+        self.all_tasks[task.id] = task
+        self.queue_changed.emit()
+        self.task_state_changed.emit(task.id)
+        self._try_run_next()
+        return True
+
+    def cancel(self, task_id):
+        for i, t in enumerate(self.pending):
+            if t.id == task_id:
+                self.pending.pop(i)
+                t.status = "canceled"
+                self.all_tasks.pop(task_id, None)
+                self.queue_changed.emit()
+                self.task_state_changed.emit(task_id)
+                return "removed"
+        if task_id in self.running:
+            return "running"
+        return "not_found"
+
+    def dismiss(self, task_id):
+        for i, t in enumerate(self.pending):
+            if t.id == task_id:
+                self.pending.pop(i)
+                break
+        self.running.pop(task_id, None)
+        self.all_tasks.pop(task_id, None)
+        self.queue_changed.emit()
+
+    def retry(self, task_id):
+        t = self.all_tasks.get(task_id)
+        if not t or t.status != "failed":
+            return False
+        if not self.can_enqueue():
+            return False
+        t.status = "pending"
+        t.results = []
+        t.error_msg = ""
+        t.done_count = 0
+        t.thread = None
+        if t not in self.pending:
+            self.pending.append(t)
+        self.queue_changed.emit()
+        self.task_state_changed.emit(task_id)
+        self._try_run_next()
+        return True
+
+    def set_max_concurrent(self, n):
+        self.max_concurrent = max(1, min(5, int(n)))
+        self._try_run_next()
+
+    def _try_run_next(self):
+        while self.pending and len(self.running) < self.max_concurrent:
+            task = self.pending.pop(0)
+            self.running[task.id] = task
+            task.status = "running"
+            try:
+                self.main_window._start_task(task)
+            except Exception as e:
+                task.status = "failed"
+                task.error_msg = f"启动失败: {e}"
+                self.running.pop(task.id, None)
+            self.queue_changed.emit()
+            self.task_state_changed.emit(task.id)
+
+    def on_task_one_finished(self, task_id, index, data):
+        t = self.all_tasks.get(task_id)
+        if not t:
+            return
+        t.results.append(data)
+        t.done_count += 1
+        self.task_state_changed.emit(task_id)
+
+    def on_task_error(self, task_id, index, msg):
+        t = self.all_tasks.get(task_id)
+        if not t:
+            return
+        t.done_count += 1
+        if not t.error_msg:
+            t.error_msg = msg
+        self.task_state_changed.emit(task_id)
+
+    def on_task_all_done(self, task_id):
+        t = self.all_tasks.get(task_id)
+        if not t:
+            return
+        if not t.results:
+            t.status = "failed"
+            if not t.error_msg:
+                t.error_msg = "全部生成失败"
+        else:
+            t.status = "done"
+        self.running.pop(task_id, None)
+        self.task_state_changed.emit(task_id)
+        self.queue_changed.emit()
+        try:
+            self.main_window._on_task_finished(t)
+        except Exception as e:
+            print(f"[DEBUG] _on_task_finished error: {e}", flush=True)
+        self._try_run_next()
+
+
+class TaskCard(QFrame):
+    """任务卡片：标题 + 状态徽章 + 缩略图网格 + 操作按钮"""
+
+    STATUS_TEXT = {
+        "pending": "排队中",
+        "running": "生成中",
+        "done": "已完成",
+        "failed": "失败",
+    }
+
+    def __init__(self, task, main_window, parent=None):
+        super().__init__(parent)
+        self.task = task
+        self.main_window = main_window
+        self.setObjectName("taskCard")
+        theme = get_theme(main_window._theme)
+        self.setStyleSheet(
+            "QFrame#taskCard {"
+            f" background: {theme['bg_card_solid']};"
+            f" border: 1px solid {theme['border_soft']};"
+            " border-radius: 10px;"
+            "}"
+            "QFrame#taskCard:hover {"
+            f" border: 1px solid {theme['accent_border']};"
+            "}"
+        )
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(14, 12, 14, 12)
+        outer.setSpacing(8)
+
+        head = QHBoxLayout()
+        head.setSpacing(10)
+
+        kind_emoji = "⚡" if task.kind == "image" else "🎬"
+        title_text = f"{kind_emoji}  #{task.id}  {task.summary.get('label','')}"
+        self.title_lbl = QLabel(title_text)
+        self.title_lbl.setStyleSheet(
+            f"color: {theme['text_primary']}; font-size: 13px; font-weight: 700;"
+            " border: none; background: transparent;"
+        )
+        head.addWidget(self.title_lbl, 1)
+
+        self.status_lbl = QLabel("")
+        self.status_lbl.setAlignment(Qt.AlignCenter)
+        self.status_lbl.setMinimumWidth(72)
+        self.status_lbl.setStyleSheet(self._status_style("pending", theme))
+        head.addWidget(self.status_lbl)
+
+        self.cancel_btn = QPushButton("✕")
+        self.cancel_btn.setFixedSize(26, 26)
+        self.cancel_btn.setCursor(Qt.PointingHandCursor)
+        self.cancel_btn.setStyleSheet(
+            "QPushButton { background: rgba(255,107,107,0.15); color: #ff6b6b;"
+            " border: 1px solid rgba(255,107,107,0.35); border-radius: 4px; font-size: 14px; }"
+            "QPushButton:hover { background: rgba(255,107,107,0.28); }"
+        )
+        self.cancel_btn.clicked.connect(self._on_cancel)
+        head.addWidget(self.cancel_btn)
+
+        outer.addLayout(head)
+
+        meta = task.summary.get("meta", "")
+        if meta:
+            meta_lbl = QLabel(meta)
+            meta_lbl.setStyleSheet(
+                f"color: {theme['text_muted']}; font-size: 11px;"
+                " border: none; background: transparent;"
+            )
+            outer.addWidget(meta_lbl)
+
+        prompt = task.summary.get("prompt", "")
+        if prompt:
+            text = prompt if len(prompt) <= 120 else prompt[:120] + "..."
+            prompt_lbl = QLabel(text)
+            prompt_lbl.setWordWrap(True)
+            prompt_lbl.setStyleSheet(
+                f"color: {theme['text_secondary']}; font-size: 12px;"
+                " border: none; background: transparent;"
+            )
+            outer.addWidget(prompt_lbl)
+
+        self.thumbs_container = QWidget()
+        self.thumbs_container.setStyleSheet("background: transparent;")
+        self.thumbs_layout = QGridLayout(self.thumbs_container)
+        self.thumbs_layout.setSpacing(8)
+        self.thumbs_layout.setContentsMargins(0, 4, 0, 4)
+        self.thumbs_layout.setAlignment(Qt.AlignLeft)
+        outer.addWidget(self.thumbs_container)
+
+        self.error_lbl = QLabel("")
+        self.error_lbl.setWordWrap(True)
+        self.error_lbl.setStyleSheet(
+            "color: #ff6b6b; font-size: 11px; border: none; background: transparent;"
+        )
+        self.error_lbl.hide()
+        outer.addWidget(self.error_lbl)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_row.addStretch()
+
+        self.retry_btn = QPushButton("重试")
+        self.retry_btn.setObjectName("saveBtn")
+        self.retry_btn.setCursor(Qt.PointingHandCursor)
+        self.retry_btn.clicked.connect(self._on_retry)
+        self.retry_btn.hide()
+        btn_row.addWidget(self.retry_btn)
+
+        self.select_all_btn = QPushButton("全选")
+        self.select_all_btn.setObjectName("saveBtn")
+        self.select_all_btn.setCursor(Qt.PointingHandCursor)
+        self.select_all_btn.clicked.connect(self._on_select_all)
+        self.select_all_btn.hide()
+        btn_row.addWidget(self.select_all_btn)
+
+        self.save_btn = QPushButton("保存选中")
+        self.save_btn.setObjectName("saveBtn")
+        self.save_btn.setCursor(Qt.PointingHandCursor)
+        self.save_btn.clicked.connect(self._on_save_selected)
+        self.save_btn.hide()
+        btn_row.addWidget(self.save_btn)
+
+        outer.addLayout(btn_row)
+
+        self.update_state()
+
+    @staticmethod
+    def _status_style(status, theme):
+        bg, fg = {
+            "pending": (theme.get('accent_softer', 'rgba(125,211,252,0.1)'), theme.get('accent', '#7dd3fc')),
+            "running": ("rgba(96,165,250,0.18)", "#60a5fa"),
+            "done": ("rgba(34,197,94,0.18)", "#22c55e"),
+            "failed": ("rgba(239,68,68,0.18)", "#ef4444"),
+        }.get(status, (theme.get('accent_softer', 'rgba(125,211,252,0.1)'), theme.get('accent', '#7dd3fc')))
+        return (
+            f"QLabel {{ background: {bg}; color: {fg};"
+            " border-radius: 12px; padding: 3px 10px;"
+            " font-size: 11px; font-weight: 700; }"
+        )
+
+    def update_state(self):
+        t = self.task
+        theme = get_theme(self.main_window._theme)
+        status_key = t.status if t.status in self.STATUS_TEXT else "pending"
+        text = self.STATUS_TEXT.get(status_key, status_key)
+        if status_key == "running" and t.total > 1:
+            text = f"生成中 {t.done_count}/{t.total}"
+        self.status_lbl.setText(text)
+        self.status_lbl.setStyleSheet(self._status_style(status_key, theme))
+
+        self.cancel_btn.setVisible(status_key in ("pending", "running"))
+        self.retry_btn.setVisible(status_key == "failed")
+        has_results = bool(t.results)
+        self.select_all_btn.setVisible(status_key in ("done",) and has_results)
+        self.save_btn.setVisible(status_key in ("done",) and has_results)
+
+        if status_key == "failed" and t.error_msg:
+            self.error_lbl.setText(f"错误：{t.error_msg}")
+            self.error_lbl.show()
+        elif status_key == "done" and t.error_msg and len(t.results) < t.total:
+            self.error_lbl.setText(f"部分失败：{t.error_msg}")
+            self.error_lbl.show()
+        else:
+            self.error_lbl.hide()
+
+        self._refresh_thumbs()
+
+    def _refresh_thumbs(self):
+        while self.thumbs_layout.count():
+            w = self.thumbs_layout.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+        if not self.task.results:
+            return
+        is_video = self.task.kind == "video"
+        ext = self.task.params.get("ext", "png") if not is_video else "mp4"
+        cols = 4
+        for i, data in enumerate(self.task.results):
+            if is_video:
+                lbl = ClickableLabel(data, file_ext="mp4", is_video=True)
+                _t = get_theme(self.main_window._theme)
+                lbl._vid_style_base = (
+                    "QLabel { border: 2px solid transparent; border-radius: 8px; padding: 0px;"
+                    f" background-color: {_t['bg_input_strong']}; color: {_t['text_input']}; font-size: 13px; }}"
+                    "QLabel:hover { border-color: " + _t['accent_border'] + "; background-color: " + _t['accent_softer'] + "; }"
+                )
+                lbl._vid_style_checked = (
+                    "QLabel { border: 3px solid " + _t['accent'] + "; border-radius: 8px; padding: 0px;"
+                    f" background-color: {_t['accent_softer']}; color: {_t['text_input']}; font-size: 13px; }}"
+                )
+                lbl.setStyleSheet(lbl._vid_style_base)
+            else:
+                lbl = ClickableLabel(data, file_ext=ext)
+                qimg = QImage.fromData(data)
+                if not qimg.isNull():
+                    pixmap = QPixmap.fromImage(qimg)
+                    scaled = pixmap.scaled(150, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    lbl.setPixmap(scaled)
+            row, col = divmod(i, cols)
+            self.thumbs_layout.addWidget(lbl, row, col)
+
+    def _selected_labels(self):
+        out = []
+        for i in range(self.thumbs_layout.count()):
+            w = self.thumbs_layout.itemAt(i).widget()
+            if isinstance(w, ClickableLabel) and w.checked:
+                out.append(w)
+        return out
+
+    def _all_labels(self):
+        out = []
+        for i in range(self.thumbs_layout.count()):
+            w = self.thumbs_layout.itemAt(i).widget()
+            if isinstance(w, ClickableLabel):
+                out.append(w)
+        return out
+
+    def _on_select_all(self):
+        labels = self._all_labels()
+        if not labels:
+            return
+        all_checked = all(l.checked for l in labels)
+        for l in labels:
+            l.checked = not all_checked
+            l._update_border()
+        self.select_all_btn.setText("取消全选" if not all_checked else "全选")
+
+    def _on_save_selected(self):
+        labels = self._selected_labels()
+        if not labels:
+            QMessageBox.information(self, "提示", "请先单击选中要保存的项（蓝色边框表示选中）")
+            return
+        is_video = self.task.kind == "video"
+        if is_video:
+            base = "sora_video"
+            ext = "mp4"
+            filters = "MP4 视频 (*.mp4);;所有文件 (*)"
+            single_title = "保存视频"
+        else:
+            ext = self.task.params.get("ext", "png")
+            base = "gpt_image"
+            if ext == "png":
+                filters = "PNG 图片 (*.png);;JPEG 图片 (*.jpg);;所有文件 (*)"
+            else:
+                filters = "JPEG 图片 (*.jpg);;PNG 图片 (*.png);;所有文件 (*)"
+            single_title = "保存图片"
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        if len(labels) == 1:
+            default_name = f"{base}_{ts}.{ext}"
+            path, _ = QFileDialog.getSaveFileName(
+                self, single_title,
+                os.path.join(os.path.expanduser("~"), "Desktop", default_name),
+                filters,
+            )
+            if path:
+                with open(path, "wb") as f:
+                    f.write(labels[0].raw_bytes)
+                self.main_window.footer_status.setText(f"已保存到: {path}")
+        else:
+            folder = QFileDialog.getExistingDirectory(
+                self, "选择保存文件夹",
+                os.path.join(os.path.expanduser("~"), "Desktop"),
+            )
+            if folder:
+                for i, lbl in enumerate(labels):
+                    p = os.path.join(folder, f"{base}_{ts}_{i+1}.{ext}")
+                    with open(p, "wb") as f:
+                        f.write(lbl.raw_bytes)
+                self.main_window.footer_status.setText(f"已保存 {len(labels)} 个到: {folder}")
+
+    def _on_cancel(self):
+        result = self.main_window.scheduler.cancel(self.task.id)
+        if result == "running":
+            self.main_window._show_transient_status(f"#{self.task.id} 生成中无法取消，请等待完成", 3000)
+        elif result == "removed":
+            self.main_window._show_transient_status(f"#{self.task.id} 已从队列移除", 2000)
+            self.main_window._refresh_task_views()
+
+    def _on_retry(self):
+        if not self.main_window.scheduler.retry(self.task.id):
+            QMessageBox.warning(self, "提示", "队列已满或无法重试")
 
 
 class ClickableLabel(QLabel):
@@ -1795,7 +2449,7 @@ HISTORY_JSON = os.path.join(HISTORY_DIR, "history.json")
 UI_SETTINGS_JSON = os.path.join(_APP_DIR, "ui_settings.json")
 API_KEY_FILE = os.path.join(_APP_DIR, "api_key.dat")
 
-DEFAULT_UI_SETTINGS = {"font_scale": 100, "brightness": 0}
+DEFAULT_UI_SETTINGS = {"font_scale": 100, "brightness": 0, "theme": DEFAULT_THEME, "concurrency": 3}
 
 
 def save_api_key(key):
@@ -1834,9 +2488,19 @@ def load_ui_settings():
         try:
             with open(UI_SETTINGS_JSON, "r", encoding="utf-8") as f:
                 data = json.load(f)
+            theme = data.get("theme", DEFAULT_THEME)
+            if theme not in THEMES:
+                theme = DEFAULT_THEME
+            try:
+                concurrency = int(data.get("concurrency", 3))
+            except (TypeError, ValueError):
+                concurrency = 3
+            concurrency = max(1, min(5, concurrency))
             return {
                 "font_scale": int(data.get("font_scale", 100)),
                 "brightness": int(data.get("brightness", 0)),
+                "theme": theme,
+                "concurrency": concurrency,
             }
         except Exception:
             pass
@@ -1950,83 +2614,129 @@ def add_video_history_record(prompt, model, orientation, duration, video_paths):
     )
 
 
-SETTINGS_DIALOG_STYLE = """
+SETTINGS_DIALOG_STYLE_TEMPLATE = """
 QDialog#settingsDlg {
-    background-color: #0a0e1a;
-    border: 1px solid rgba(125, 211, 252, 0.2);
+    background-color: $bg_main;
+    border: 1px solid $accent_border;
 }
 QLabel#settingsTitle {
-    color: #7dd3fc;
+    color: $accent;
     font-size: 18px;
     font-weight: 700;
 }
 QLabel#settingsHint {
-    color: #64748b;
+    color: $text_muted;
     font-size: 12px;
 }
 QLabel#settingsRow {
-    color: #e0e8f0;
+    color: $text_primary;
     font-size: 14px;
     font-weight: 600;
 }
 QLabel#settingsValue {
-    color: #7dd3fc;
+    color: $accent;
     font-size: 13px;
     font-family: "Consolas", "Courier New";
     min-width: 56px;
 }
+QComboBox#themeCombo {
+    background-color: $bg_input;
+    border: 1px solid $border_soft;
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: $text_input;
+    min-width: 180px;
+    min-height: 28px;
+    font-size: 13px;
+}
+QComboBox#themeCombo:hover {
+    border-color: $accent_border;
+}
+QComboBox#themeCombo::drop-down {
+    border: none;
+    width: 24px;
+}
+QComboBox#themeCombo::down-arrow {
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid $down_arrow_color;
+    margin-right: 8px;
+}
+QComboBox#themeCombo QAbstractItemView {
+    background-color: $bg_combo_pop;
+    color: $text_input;
+    selection-background-color: $bg_combo_pop_item_sel;
+    selection-color: $text_primary;
+    border: 1px solid $border_soft;
+    border-radius: 6px;
+    padding: 4px;
+    outline: none;
+}
+QComboBox#themeCombo QAbstractItemView::item {
+    background-color: $bg_combo_pop;
+    color: $text_input;
+    padding: 8px 14px;
+    min-height: 26px;
+    border: none;
+}
+QComboBox#themeCombo QAbstractItemView::item:selected,
+QComboBox#themeCombo QAbstractItemView::item:hover {
+    background-color: $bg_combo_pop_item_sel;
+    color: $text_primary;
+}
 QSlider::groove:horizontal {
-    background: rgba(125, 211, 252, 0.15);
+    background: $accent_soft;
     height: 4px;
     border-radius: 2px;
 }
 QSlider::sub-page:horizontal {
-    background: rgba(125, 211, 252, 0.5);
+    background: $accent;
     border-radius: 2px;
 }
 QSlider::handle:horizontal {
-    background: #7dd3fc;
+    background: $accent;
     width: 14px;
     height: 14px;
     margin: -6px 0;
     border-radius: 7px;
 }
 QPushButton#settingsApply {
-    background-color: rgba(125, 211, 252, 0.15);
-    border: 1px solid rgba(125, 211, 252, 0.3);
+    background-color: $accent_soft;
+    border: 1px solid $accent_border;
     border-radius: 8px;
-    color: #7dd3fc;
+    color: $accent;
     font-size: 14px;
     font-weight: 700;
     padding: 8px 22px;
 }
 QPushButton#settingsApply:hover {
-    background-color: rgba(125, 211, 252, 0.25);
+    background-color: $accent_hover;
 }
 QPushButton#settingsReset {
     background: transparent;
-    border: 1px solid rgba(148, 163, 184, 0.3);
+    border: 1px solid $border_soft;
     border-radius: 8px;
-    color: #94a3b8;
+    color: $text_secondary;
     font-size: 14px;
     padding: 8px 18px;
 }
 QPushButton#settingsReset:hover {
-    color: #e0e8f0;
-    border-color: rgba(148, 163, 184, 0.6);
+    color: $text_primary;
+    border-color: $accent_border;
 }
 """
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, parent, font_scale, brightness, on_change):
+    def __init__(self, parent, font_scale, brightness, theme, concurrency, on_change):
         super().__init__(parent)
         self.setObjectName("settingsDlg")
         self.setWindowTitle("界面设置")
-        self.setStyleSheet(SETTINGS_DIALOG_STYLE)
-        self.setFixedWidth(440)
+        self.setStyleSheet(build_settings_dialog_style(theme))
+        self.setFixedWidth(460)
         self._on_change = on_change
-        self._initial = (font_scale, brightness)
+        self._initial = (font_scale, brightness, theme, concurrency)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 22)
@@ -2040,6 +2750,25 @@ class SettingsDialog(QDialog):
         hint.setObjectName("settingsHint")
         layout.addWidget(hint)
         layout.addSpacing(6)
+
+        theme_row = QHBoxLayout()
+        theme_label = QLabel("主题")
+        theme_label.setObjectName("settingsRow")
+        theme_label.setFixedWidth(80)
+        self.theme_combo = QComboBox()
+        self.theme_combo.setObjectName("themeCombo")
+        self._theme_keys = list(THEMES.keys())
+        for k in self._theme_keys:
+            self.theme_combo.addItem(THEMES[k]["name"], k)
+        try:
+            cur_idx = self._theme_keys.index(theme)
+        except ValueError:
+            cur_idx = self._theme_keys.index(DEFAULT_THEME)
+        self.theme_combo.setCurrentIndex(cur_idx)
+        self.theme_combo.currentIndexChanged.connect(self._on_theme)
+        theme_row.addWidget(theme_label)
+        theme_row.addWidget(self.theme_combo, 1)
+        layout.addLayout(theme_row)
 
         font_row = QHBoxLayout()
         font_label = QLabel("字体大小")
@@ -2077,6 +2806,28 @@ class SettingsDialog(QDialog):
         bri_row.addWidget(self.bri_value)
         layout.addLayout(bri_row)
 
+        conc_row = QHBoxLayout()
+        conc_label = QLabel("并发任务数")
+        conc_label.setObjectName("settingsRow")
+        conc_label.setFixedWidth(80)
+        self.conc_combo = QComboBox()
+        self.conc_combo.setObjectName("themeCombo")
+        for n in range(1, 6):
+            self.conc_combo.addItem(str(n), n)
+        try:
+            cur_c = max(1, min(5, int(concurrency)))
+        except (TypeError, ValueError):
+            cur_c = 3
+        self.conc_combo.setCurrentIndex(cur_c - 1)
+        self.conc_combo.currentIndexChanged.connect(self._on_concurrency)
+        conc_row.addWidget(conc_label)
+        conc_row.addWidget(self.conc_combo, 1)
+        layout.addLayout(conc_row)
+
+        conc_hint = QLabel("图片 + 视频共享并发额度，可选 1-5")
+        conc_hint.setObjectName("settingsHint")
+        layout.addWidget(conc_hint)
+
         layout.addSpacing(8)
 
         btn_row = QHBoxLayout()
@@ -2098,6 +2849,18 @@ class SettingsDialog(QDialog):
     def _fmt_brightness(v):
         return f"{v:+d}" if v else "0"
 
+    def _current_theme(self):
+        i = self.theme_combo.currentIndex()
+        if 0 <= i < len(self._theme_keys):
+            return self._theme_keys[i]
+        return DEFAULT_THEME
+
+    def _on_theme(self, _idx):
+        theme = self._current_theme()
+        # 设置弹窗自身也跟着切换样式
+        self.setStyleSheet(build_settings_dialog_style(theme))
+        self._on_change(self.font_slider.value(), self.bri_slider.value(), theme, self._current_concurrency())
+
     def _on_font(self, v):
         v = (v // 5) * 5
         if v != self.font_slider.value():
@@ -2105,7 +2868,7 @@ class SettingsDialog(QDialog):
             self.font_slider.setValue(v)
             self.font_slider.blockSignals(False)
         self.font_value.setText(f"{v}%")
-        self._on_change(v, self.bri_slider.value())
+        self._on_change(v, self.bri_slider.value(), self._current_theme(), self._current_concurrency())
 
     def _on_brightness(self, v):
         v = (v // 5) * 5
@@ -2114,11 +2877,23 @@ class SettingsDialog(QDialog):
             self.bri_slider.setValue(v)
             self.bri_slider.blockSignals(False)
         self.bri_value.setText(self._fmt_brightness(v))
-        self._on_change(self.font_slider.value(), v)
+        self._on_change(self.font_slider.value(), v, self._current_theme(), self._current_concurrency())
+
+    def _on_concurrency(self, _idx):
+        self._on_change(self.font_slider.value(), self.bri_slider.value(), self._current_theme(), self._current_concurrency())
+
+    def _current_concurrency(self):
+        return int(self.conc_combo.currentData() or 3)
 
     def _reset(self):
+        try:
+            default_idx = self._theme_keys.index(DEFAULT_THEME)
+        except ValueError:
+            default_idx = 0
+        self.theme_combo.setCurrentIndex(default_idx)
         self.font_slider.setValue(100)
         self.bri_slider.setValue(0)
+        self.conc_combo.setCurrentIndex(2)
 
     def reject(self):
         # 取消时还原回弹出前的设置
@@ -2126,7 +2901,7 @@ class SettingsDialog(QDialog):
         super().reject()
 
     def values(self):
-        return self.font_slider.value(), self.bri_slider.value()
+        return self.font_slider.value(), self.bri_slider.value(), self._current_theme(), self._current_concurrency()
 
 
 class MainWindow(QMainWindow):
@@ -2141,6 +2916,7 @@ class MainWindow(QMainWindow):
         self._img_ref_data_list = []
         self._vid_img_ref_data_list = []
         self._vid_video_ref_url_list = []
+        self._vid_audio_ref_url_list = []
         self._current_prompt = ""
         self._current_model = ""
         self._current_quality = ""
@@ -2148,17 +2924,25 @@ class MainWindow(QMainWindow):
         ui = load_ui_settings()
         self._font_scale = ui["font_scale"]
         self._brightness = ui["brightness"]
+        self._theme = ui.get("theme", DEFAULT_THEME)
+        self._concurrency = max(1, min(5, int(ui.get("concurrency", 3))))
         self._bg_pages = []
         self._balance_thread = None
+        self.scheduler = TaskScheduler(self, max_concurrent=self._concurrency)
+        self.scheduler.task_state_changed.connect(self._on_task_state_changed)
+        self.scheduler.queue_changed.connect(self._refresh_status_bar)
+        self._task_cards = {}
         self.init_ui()
         self._apply_ui_settings()
+        self._refresh_task_views()
+        self._refresh_status_bar()
         QTimer.singleShot(300, self.refresh_balance)
 
     def init_ui(self):
         self.setWindowTitle("Glacier AI")
         self.setMinimumSize(1100, 750)
         self.resize(1200, 800)
-        self.setStyleSheet(DARK_STYLE)
+        self.setStyleSheet(build_main_style(self._theme))
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
 
@@ -2167,7 +2951,7 @@ class MainWindow(QMainWindow):
             self.setWindowIcon(QIcon(logo_path))
 
         central = QWidget()
-        central.setStyleSheet("background-color: #0a0e1a;")
+        central.setStyleSheet(f"background-color: {get_theme(self._theme)['bg_main']};")
         self._bg_pages.append(central)
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
@@ -2211,7 +2995,7 @@ class MainWindow(QMainWindow):
 
         sep = QFrame()
         sep.setFixedSize(1, 16)
-        sep.setStyleSheet("background-color: rgba(125, 211, 252, 0.2);")
+        sep.setStyleSheet("background-color: " + get_theme(self._theme)['accent_border'] + ";")
         layout.addSpacing(12)
         layout.addWidget(sep)
         layout.addSpacing(12)
@@ -2280,9 +3064,9 @@ class MainWindow(QMainWindow):
         title = QLabel("GLACIER ENGINE")
         title.setObjectName("navTitle")
         header_layout.addWidget(title)
-        ver = QLabel("V3.0 Stable")
+        ver = QLabel("V3.2 Stable")
         ver.setObjectName("navVersion")
-        ver.setStyleSheet("font-size: 16px; font-weight: bold; color: #ff9f1c;")
+        ver.setStyleSheet("font-size: 16px; font-weight: bold; color: " + get_theme(self._theme)['version_color'] + ";")
         header_layout.addWidget(ver)
         nav_layout.addWidget(header)
 
@@ -2319,9 +3103,11 @@ class MainWindow(QMainWindow):
         bottom_layout.setContentsMargins(16, 12, 16, 16)
         bottom_layout.setSpacing(6)
 
+        _t = get_theme(self._theme)
+
         sep = QFrame()
         sep.setFixedHeight(1)
-        sep.setStyleSheet("background-color: rgba(255,255,255,0.05);")
+        sep.setStyleSheet("background-color: " + _t['border_top_alpha'] + ";")
         bottom_layout.addWidget(sep)
         bottom_layout.addSpacing(4)
 
@@ -2331,7 +3117,7 @@ class MainWindow(QMainWindow):
         self.balance_label = QLabel("余额: 加载中...")
         self.balance_label.setObjectName("navBalanceLabel")
         self.balance_label.setStyleSheet(
-            "color: #7dd3fc; font-size: 16px; font-weight: 700;"
+            f"color: {_t['accent']}; font-size: 16px; font-weight: 700; background: transparent;"
         )
         balance_row.addWidget(self.balance_label, 1)
 
@@ -2341,11 +3127,11 @@ class MainWindow(QMainWindow):
         self.balance_refresh_btn.setFixedSize(30, 28)
         self.balance_refresh_btn.setToolTip("刷新余额")
         self.balance_refresh_btn.setStyleSheet(
-            "QPushButton { background: rgba(125,211,252,0.1); color: #7dd3fc;"
-            " border: 1px solid rgba(125,211,252,0.3); border-radius: 4px;"
+            "QPushButton { background: " + _t['accent_softer'] + "; color: " + _t['accent'] + ";"
+            " border: 1px solid " + _t['accent_border'] + "; border-radius: 4px;"
             " font-size: 16px; padding: 0; }"
-            "QPushButton:hover { background: rgba(125,211,252,0.2); }"
-            "QPushButton:disabled { color: #475569; border-color: rgba(125,211,252,0.1); }"
+            "QPushButton:hover { background: " + _t['accent_soft'] + "; }"
+            "QPushButton:disabled { color: " + _t['text_dim'] + "; border-color: " + _t['border_soft'] + "; }"
         )
         self.balance_refresh_btn.clicked.connect(self.refresh_balance)
         balance_row.addWidget(self.balance_refresh_btn)
@@ -2354,7 +3140,7 @@ class MainWindow(QMainWindow):
         switch_btn = QPushButton("切换账号")
         switch_btn.setCursor(Qt.PointingHandCursor)
         switch_btn.setStyleSheet(
-            "QPushButton { background: transparent; color: #94a3b8;"
+            "QPushButton { background: transparent; color: " + _t['text_secondary'] + ";"
             " border: none; font-size: 13px; padding: 4px 2px; text-align: left; }"
             "QPushButton:hover { color: #cbd5e1; }"
         )
@@ -2364,38 +3150,51 @@ class MainWindow(QMainWindow):
         key_display = self.api_key[:8] + "..." + self.api_key[-4:]
         key_label = QLabel(f"Key: {key_display}")
         key_label.setObjectName("navKeyLabel")
-        key_label.setStyleSheet("color: #64748b; font-size: 11px;")
+        key_label.setStyleSheet("color: " + _t['text_muted'] + "; font-size: 11px; background: transparent;")
         bottom_layout.addWidget(key_label)
 
         nav_layout.addWidget(bottom)
         parent_layout.addWidget(nav)
 
     def _apply_ui_settings(self):
-        adjusted = apply_ui_adjustments(DARK_STYLE, self._font_scale, self._brightness)
+        base_qss = build_main_style(self._theme)
+        adjusted = apply_ui_adjustments(base_qss, self._font_scale, self._brightness)
         self.setStyleSheet(adjusted)
-        page_bg = shift_inline_bg("#0a0e1a", self._brightness)
+        theme = get_theme(self._theme)
+        page_bg = shift_inline_bg(theme["bg_main"], self._brightness)
         for w in self._bg_pages:
             try:
                 w.setStyleSheet(f"background-color: {page_bg};")
             except Exception:
                 pass
 
-    def _preview_ui_settings(self, font_scale, brightness):
+    def _preview_ui_settings(self, font_scale, brightness, theme=None, concurrency=None):
         self._font_scale = font_scale
         self._brightness = brightness
+        if theme is not None and theme in THEMES:
+            self._theme = theme
+        if concurrency is not None:
+            try:
+                self._concurrency = max(1, min(5, int(concurrency)))
+            except (TypeError, ValueError):
+                pass
         self._apply_ui_settings()
 
     def _open_settings(self):
-        before = (self._font_scale, self._brightness)
-        dlg = SettingsDialog(self, self._font_scale, self._brightness, self._preview_ui_settings)
+        before = (self._font_scale, self._brightness, self._theme, self._concurrency)
+        dlg = SettingsDialog(self, self._font_scale, self._brightness, self._theme, self._concurrency, self._preview_ui_settings)
         if dlg.exec_() == QDialog.Accepted:
-            fs, bri = dlg.values()
+            fs, bri, theme, conc = dlg.values()
             self._font_scale = fs
             self._brightness = bri
+            self._theme = theme
+            self._concurrency = conc
             self._apply_ui_settings()
-            save_ui_settings({"font_scale": fs, "brightness": bri})
+            self.scheduler.set_max_concurrent(conc)
+            self._refresh_status_bar()
+            save_ui_settings({"font_scale": fs, "brightness": bri, "theme": theme, "concurrency": conc})
         else:
-            self._font_scale, self._brightness = before
+            self._font_scale, self._brightness, self._theme, self._concurrency = before
             self._apply_ui_settings()
 
     def refresh_balance(self):
@@ -2419,6 +3218,12 @@ class MainWindow(QMainWindow):
         self.balance_label.setToolTip(f"查询失败: {msg}")
 
     def _switch_account(self):
+        if self.scheduler.has_unfinished():
+            QMessageBox.information(
+                self, "切换账号",
+                f"当前还有 {self.scheduler.total_count()} 个任务未完成，请先取消或等待完成后再切换账号。",
+            )
+            return
         mb = QMessageBox(self)
         mb.setWindowTitle("切换账号")
         mb.setText("返回登录窗口选择/输入其他 API Key？")
@@ -2453,6 +3258,22 @@ class MainWindow(QMainWindow):
         if mb.clickedButton() is yes_btn:
             QApplication.exit(1001)
 
+    def closeEvent(self, event):
+        if self.scheduler.has_unfinished():
+            n = self.scheduler.total_count()
+            mb = QMessageBox(self)
+            mb.setWindowTitle("确认关闭")
+            mb.setIcon(QMessageBox.Question)
+            mb.setText(f"还有 {n} 个任务未完成，确认关闭？")
+            yes_btn = mb.addButton("关闭", QMessageBox.YesRole)
+            no_btn = mb.addButton("继续", QMessageBox.NoRole)
+            mb.setDefaultButton(no_btn)
+            mb.exec_()
+            if mb.clickedButton() is not yes_btn:
+                event.ignore()
+                return
+        super().closeEvent(event)
+
     def _switch_nav(self, index):
         self.content_stack.setCurrentIndex(index)
         btns = [self.nav_img_btn, self.nav_vid_btn, self.nav_hist_btn]
@@ -2464,7 +3285,7 @@ class MainWindow(QMainWindow):
 
     def _build_image_page(self):
         page = QWidget()
-        page.setStyleSheet("background-color: #0a0e1a;")
+        page.setStyleSheet(f"background-color: {get_theme(self._theme)['bg_main']};")
         self._bg_pages.append(page)
         layout = QHBoxLayout(page)
         layout.setSpacing(24)
@@ -2515,7 +3336,7 @@ class MainWindow(QMainWindow):
         ref_layout.addWidget(ref_title)
 
         self.img_ref_hint = QLabel("提示：参考图最多 6 张")
-        self.img_ref_hint.setStyleSheet("color: #f59e0b; font-size: 11px;")
+        self.img_ref_hint.setStyleSheet("color: #f59e0b; font-size: 11px; background: transparent;")
         ref_layout.addWidget(self.img_ref_hint)
 
         self.img_ref_url = QLineEdit()
@@ -2543,7 +3364,7 @@ class MainWindow(QMainWindow):
         ref_layout.addLayout(self.img_ref_preview_layout)
 
         self.img_ref_count_label = QLabel("")
-        self.img_ref_count_label.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        self.img_ref_count_label.setStyleSheet("color: " + get_theme(self._theme)['text_muted'] + "; font-size: 11px; background: transparent;")
         ref_layout.addWidget(self.img_ref_count_label)
 
         left_layout.addWidget(ref_card)
@@ -2620,22 +3441,6 @@ class MainWindow(QMainWindow):
         right.setSpacing(0)
         right.setContentsMargins(0, 0, 0, 0)
 
-        save_row = QHBoxLayout()
-        save_row.addStretch()
-        self.select_all_btn = QPushButton("全选")
-        self.select_all_btn.setObjectName("saveBtn")
-        self.select_all_btn.setCursor(Qt.PointingHandCursor)
-        self.select_all_btn.clicked.connect(self.on_select_all_images)
-        save_row.addWidget(self.select_all_btn)
-        self.save_btn = QPushButton("保存选中")
-        self.save_btn.setObjectName("saveBtn")
-        self.save_btn.setEnabled(False)
-        self.save_btn.setCursor(Qt.PointingHandCursor)
-        self.save_btn.clicked.connect(self.on_save)
-        save_row.addWidget(self.save_btn)
-        right.addLayout(save_row)
-        right.addSpacing(8)
-
         preview = QFrame()
         preview.setObjectName("previewArea")
         preview_layout = QVBoxLayout(preview)
@@ -2650,7 +3455,7 @@ class MainWindow(QMainWindow):
         img_icon_holder.setStyleSheet("background: transparent;")
         self.img_search_icon = QLabel("🔍", img_icon_holder)
         self.img_search_icon.setAlignment(Qt.AlignCenter)
-        self.img_search_icon.setStyleSheet("font-size: 48px; border: none; background: transparent;")
+        self.img_search_icon.setStyleSheet("font-size: 48px; border: none; background: transparent; color: " + get_theme(self._theme)['accent'] + ";")
         self.img_search_icon.setFixedSize(70, 70)
         self.img_search_icon.move(65, 35)
         self._img_icon_home = (65, 35)
@@ -2670,10 +3475,11 @@ class MainWindow(QMainWindow):
 
         self.img_results_container = QWidget()
         self.img_results_container.setStyleSheet("background: transparent;")
-        self.img_results_layout = QGridLayout(self.img_results_container)
-        self.img_results_layout.setSpacing(8)
+        self.img_results_layout = QVBoxLayout(self.img_results_container)
+        self.img_results_layout.setSpacing(10)
         self.img_results_layout.setContentsMargins(8, 8, 8, 8)
-        self.img_results_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.img_results_layout.setAlignment(Qt.AlignTop)
+        self.img_results_layout.addStretch()
 
         img_scroll = QScrollArea()
         img_scroll.setWidgetResizable(True)
@@ -2687,7 +3493,7 @@ class MainWindow(QMainWindow):
 
         self.img_status_bar = QLabel("● GPU Cluster: Online          Session: Frost-772")
         self.img_status_bar.setObjectName("footerText")
-        self.img_status_bar.setStyleSheet("border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; color: #64748b; font-size: 9px; font-family: Consolas;")
+        self.img_status_bar.setStyleSheet("border-top: 1px solid " + get_theme(self._theme)['border_top_alpha'] + "; padding-top: 8px; color: " + get_theme(self._theme)['text_muted'] + "; font-size: 9px; font-family: Consolas; background: transparent;")
         preview_layout.addWidget(self.img_status_bar)
 
         right.addWidget(preview, 1)
@@ -2698,7 +3504,7 @@ class MainWindow(QMainWindow):
 
     def _build_video_page(self):
         page = QWidget()
-        page.setStyleSheet("background-color: #0a0e1a;")
+        page.setStyleSheet(f"background-color: {get_theme(self._theme)['bg_main']};")
         self._bg_pages.append(page)
         layout = QHBoxLayout(page)
         layout.setSpacing(24)
@@ -2750,7 +3556,7 @@ class MainWindow(QMainWindow):
         vid_ref_layout.addWidget(vid_ref_title)
 
         self.vid_img_ref_hint = QLabel("")
-        self.vid_img_ref_hint.setStyleSheet("color: #f59e0b; font-size: 11px;")
+        self.vid_img_ref_hint.setStyleSheet("color: #f59e0b; font-size: 11px; background: transparent;")
         self.vid_img_ref_hint.setWordWrap(True)
         vid_ref_layout.addWidget(self.vid_img_ref_hint)
 
@@ -2774,7 +3580,7 @@ class MainWindow(QMainWindow):
         vid_ref_layout.addLayout(self.vid_img_ref_preview_layout)
 
         self.vid_img_ref_count_label = QLabel("")
-        self.vid_img_ref_count_label.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        self.vid_img_ref_count_label.setStyleSheet("color: " + get_theme(self._theme)['text_muted'] + "; font-size: 11px; background: transparent;")
         vid_ref_layout.addWidget(self.vid_img_ref_count_label)
 
         left_layout.addWidget(vid_ref_card)
@@ -2790,7 +3596,7 @@ class MainWindow(QMainWindow):
         vvr_layout.addWidget(self.vid_video_ref_title)
 
         self.vid_video_ref_hint = QLabel("")
-        self.vid_video_ref_hint.setStyleSheet("color: #f59e0b; font-size: 11px;")
+        self.vid_video_ref_hint.setStyleSheet("color: #f59e0b; font-size: 11px; background: transparent;")
         self.vid_video_ref_hint.setWordWrap(True)
         vvr_layout.addWidget(self.vid_video_ref_hint)
 
@@ -2814,10 +3620,50 @@ class MainWindow(QMainWindow):
         vvr_layout.addLayout(self.vid_video_ref_list_layout)
 
         self.vid_video_ref_count_label = QLabel("")
-        self.vid_video_ref_count_label.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        self.vid_video_ref_count_label.setStyleSheet("color: " + get_theme(self._theme)['text_muted'] + "; font-size: 11px; background: transparent;")
         vvr_layout.addWidget(self.vid_video_ref_count_label)
 
         left_layout.addWidget(self.vid_video_ref_card)
+
+        self.vid_audio_ref_card = QFrame()
+        self.vid_audio_ref_card.setObjectName("glassPanel")
+        var_layout = QVBoxLayout(self.vid_audio_ref_card)
+        var_layout.setSpacing(10)
+        var_layout.setContentsMargins(20, 20, 20, 20)
+
+        self.vid_audio_ref_title = QLabel("参考音频（可选）")
+        self.vid_audio_ref_title.setObjectName("sectionLabel")
+        var_layout.addWidget(self.vid_audio_ref_title)
+
+        self.vid_audio_ref_hint = QLabel("提示：最多 3 条，单条 ≤15MB，总时长 ≤15s，必须公网 URL；prompt 中可用 @声音1 @声音2... 引用")
+        self.vid_audio_ref_hint.setStyleSheet("color: #f59e0b; font-size: 11px; background: transparent;")
+        self.vid_audio_ref_hint.setWordWrap(True)
+        var_layout.addWidget(self.vid_audio_ref_hint)
+
+        var_input_row = QHBoxLayout()
+        self.vid_audio_ref_input = QLineEdit()
+        self.vid_audio_ref_input.setObjectName("refUrlInput")
+        self.vid_audio_ref_input.setPlaceholderText("粘贴音频 URL 后点击 + 添加")
+        self.vid_audio_ref_input.returnPressed.connect(self.on_add_vid_audio_ref)
+        var_input_row.addWidget(self.vid_audio_ref_input)
+        self.vid_audio_ref_add_btn = QPushButton("添加")
+        self.vid_audio_ref_add_btn.setObjectName("refBtn")
+        self.vid_audio_ref_add_btn.setFixedWidth(60)
+        self.vid_audio_ref_add_btn.setStyleSheet("font-size: 13px;")
+        self.vid_audio_ref_add_btn.setCursor(Qt.PointingHandCursor)
+        self.vid_audio_ref_add_btn.clicked.connect(self.on_add_vid_audio_ref)
+        var_input_row.addWidget(self.vid_audio_ref_add_btn)
+        var_layout.addLayout(var_input_row)
+
+        self.vid_audio_ref_list_layout = QVBoxLayout()
+        self.vid_audio_ref_list_layout.setSpacing(4)
+        var_layout.addLayout(self.vid_audio_ref_list_layout)
+
+        self.vid_audio_ref_count_label = QLabel("")
+        self.vid_audio_ref_count_label.setStyleSheet("color: " + get_theme(self._theme)['text_muted'] + "; font-size: 11px; background: transparent;")
+        var_layout.addWidget(self.vid_audio_ref_count_label)
+
+        left_layout.addWidget(self.vid_audio_ref_card)
 
         self.vid_keyframe_card = QFrame()
         self.vid_keyframe_card.setObjectName("glassPanel")
@@ -2830,7 +3676,7 @@ class MainWindow(QMainWindow):
         kf_layout.addWidget(kf_title)
 
         kf_hint = QLabel("提示：首尾帧模式需同时上传首帧和尾帧")
-        kf_hint.setStyleSheet("color: #f59e0b; font-size: 11px;")
+        kf_hint.setStyleSheet("color: #f59e0b; font-size: 11px; background: transparent;")
         kf_hint.setWordWrap(True)
         kf_layout.addWidget(kf_hint)
 
@@ -2844,12 +3690,12 @@ class MainWindow(QMainWindow):
             slot_col = QVBoxLayout()
             slot_col.setSpacing(4)
             lbl_text = QLabel(label_text)
-            lbl_text.setStyleSheet("color: #94a3b8; font-size: 11px;")
+            lbl_text.setStyleSheet("color: " + get_theme(self._theme)['text_secondary'] + "; font-size: 11px; background: transparent;")
             slot_col.addWidget(lbl_text, alignment=Qt.AlignCenter)
             thumb = QLabel("点击选择")
             thumb.setFixedSize(110, 110)
             thumb.setAlignment(Qt.AlignCenter)
-            thumb.setStyleSheet("border: 1px dashed rgba(125,211,252,0.4); border-radius: 6px; color:#94a3b8; font-size:12px; background: rgba(125,211,252,0.04);")
+            thumb.setStyleSheet("border: 1px dashed " + get_theme(self._theme)['accent_border'] + "; border-radius: 6px; color:" + get_theme(self._theme)['text_secondary'] + "; font-size:12px; background: " + get_theme(self._theme)['accent_softer'] + ";")
             thumb.setCursor(Qt.PointingHandCursor)
             thumb.mousePressEvent = lambda ev, t=tag: self.on_pick_keyframe(t)
             setattr(self, f"_vid_{tag}_frame_thumb", thumb)
@@ -2938,22 +3784,6 @@ class MainWindow(QMainWindow):
         right.setSpacing(0)
         right.setContentsMargins(0, 0, 0, 0)
 
-        save_row = QHBoxLayout()
-        save_row.addStretch()
-        self.vid_select_all_btn = QPushButton("全选")
-        self.vid_select_all_btn.setObjectName("saveBtn")
-        self.vid_select_all_btn.setCursor(Qt.PointingHandCursor)
-        self.vid_select_all_btn.clicked.connect(self.on_select_all_videos)
-        save_row.addWidget(self.vid_select_all_btn)
-        self.video_save_btn = QPushButton("保存选中")
-        self.video_save_btn.setObjectName("saveBtn")
-        self.video_save_btn.setEnabled(False)
-        self.video_save_btn.setCursor(Qt.PointingHandCursor)
-        self.video_save_btn.clicked.connect(self.on_save_video)
-        save_row.addWidget(self.video_save_btn)
-        right.addLayout(save_row)
-        right.addSpacing(8)
-
         preview = QFrame()
         preview.setObjectName("previewArea")
         preview_layout = QVBoxLayout(preview)
@@ -2972,7 +3802,7 @@ class MainWindow(QMainWindow):
         vid_icon_holder.setStyleSheet("background: transparent;")
         self.vid_search_icon = QLabel("🎬", vid_icon_holder)
         self.vid_search_icon.setAlignment(Qt.AlignCenter)
-        self.vid_search_icon.setStyleSheet("font-size: 48px; border: none; background: transparent;")
+        self.vid_search_icon.setStyleSheet("font-size: 48px; border: none; background: transparent; color: " + get_theme(self._theme)['accent'] + ";")
         self.vid_search_icon.setFixedSize(70, 70)
         self.vid_search_icon.move(65, 35)
         self._vid_icon_home = (65, 35)
@@ -2992,10 +3822,11 @@ class MainWindow(QMainWindow):
 
         self.vid_results_container = QWidget()
         self.vid_results_container.setStyleSheet("background: transparent;")
-        self.vid_results_layout = QGridLayout(self.vid_results_container)
-        self.vid_results_layout.setSpacing(8)
+        self.vid_results_layout = QVBoxLayout(self.vid_results_container)
+        self.vid_results_layout.setSpacing(10)
         self.vid_results_layout.setContentsMargins(8, 8, 8, 8)
-        self.vid_results_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.vid_results_layout.setAlignment(Qt.AlignTop)
+        self.vid_results_layout.addStretch()
 
         vid_scroll = QScrollArea()
         vid_scroll.setWidgetResizable(True)
@@ -3010,7 +3841,7 @@ class MainWindow(QMainWindow):
 
         self.vid_status_bar = QLabel("● GPU Cluster: Online          Session: Frost-772")
         self.vid_status_bar.setObjectName("footerText")
-        self.vid_status_bar.setStyleSheet("border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; color: #64748b; font-size: 9px; font-family: Consolas;")
+        self.vid_status_bar.setStyleSheet("border-top: 1px solid " + get_theme(self._theme)['border_top_alpha'] + "; padding-top: 8px; color: " + get_theme(self._theme)['text_muted'] + "; font-size: 9px; font-family: Consolas; background: transparent;")
         preview_layout.addWidget(self.vid_status_bar)
 
         right.addWidget(preview, 1)
@@ -3033,7 +3864,7 @@ class MainWindow(QMainWindow):
 
         fl.addStretch()
 
-        brand = QLabel("GLACIER-OS CORE V3.0")
+        brand = QLabel("GLACIER-OS CORE V3.2")
         brand.setObjectName("footerBrand")
         fl.addWidget(brand)
 
@@ -3090,21 +3921,26 @@ class MainWindow(QMainWindow):
         url_input.clear()
         preview_label.clear()
 
+    def _current_max_img_refs(self):
+        model = self.model_combo.currentText() if hasattr(self, "model_combo") else ""
+        return IMAGE_MODEL_MAX_REFS.get(model, 4)
+
     def on_pick_img_ref(self):
-        if len(self._img_ref_data_list) >= 6:
-            QMessageBox.warning(self, "提示", "最多支持 6 张参考图片")
+        max_refs = self._current_max_img_refs()
+        if len(self._img_ref_data_list) >= max_refs:
+            QMessageBox.warning(self, "提示", f"最多支持 {max_refs} 张参考图片")
             return
         if not self.api_key:
             QMessageBox.warning(self, "提示", "请先在右上角设置 API Key")
             return
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "选择参考图片（最多6张）",
+            self, f"选择参考图片（最多{max_refs}张）",
             os.path.join(os.path.expanduser("~"), "Desktop"),
             "图片文件 (*.png *.jpg *.jpeg *.webp *.bmp);;所有文件 (*)"
         )
         if not paths:
             return
-        slots_left = 6 - len(self._img_ref_data_list)
+        slots_left = max_refs - len(self._img_ref_data_list)
         paths = paths[:slots_left]
         if not hasattr(self, "_upload_threads"):
             self._upload_threads = []
@@ -3166,7 +4002,7 @@ class MainWindow(QMainWindow):
             img_lbl = QLabel()
             img_lbl.setFixedSize(thumb_size, thumb_size)
             img_lbl.setAlignment(Qt.AlignCenter)
-            img_lbl.setStyleSheet("border: 1px solid rgba(125,211,252,0.3); border-radius: 4px; color:#94a3b8; font-size:11px;")
+            img_lbl.setStyleSheet("border: 1px solid " + get_theme(self._theme)['accent_border'] + "; border-radius: 4px; color:" + get_theme(self._theme)['text_secondary'] + "; font-size:11px; background: transparent;")
 
             if img_bytes:
                 qimg = QImage.fromData(img_bytes)
@@ -3193,10 +4029,11 @@ class MainWindow(QMainWindow):
             self.img_ref_preview_layout.addWidget(container, row, col)
         count = len(self._img_ref_data_list)
         uploading_count = sum(1 for s in self._img_ref_data_list if s.get("uploading"))
+        max_refs = self._current_max_img_refs()
         if uploading_count:
-            self.img_ref_count_label.setText(f"已选择 {count}/6 张（上传中 {uploading_count}）")
+            self.img_ref_count_label.setText(f"已选择 {count}/{max_refs} 张（上传中 {uploading_count}）")
         else:
-            self.img_ref_count_label.setText(f"已选择 {count}/6 张" if count > 0 else "")
+            self.img_ref_count_label.setText(f"已选择 {count}/{max_refs} 张" if count > 0 else "")
         self.img_ref_url.setText(f"已选择 {count} 张参考图" if count > 0 else "")
 
     def _remove_img_ref(self, index):
@@ -3283,7 +4120,7 @@ class MainWindow(QMainWindow):
             img_lbl = QLabel()
             img_lbl.setFixedSize(thumb_size, thumb_size)
             img_lbl.setAlignment(Qt.AlignCenter)
-            img_lbl.setStyleSheet("border: 1px solid rgba(125,211,252,0.3); border-radius: 4px; color:#94a3b8; font-size:11px;")
+            img_lbl.setStyleSheet("border: 1px solid " + get_theme(self._theme)['accent_border'] + "; border-radius: 4px; color:" + get_theme(self._theme)['text_secondary'] + "; font-size:11px; background: transparent;")
 
             if img_bytes:
                 qimg = QImage.fromData(img_bytes)
@@ -3302,7 +4139,7 @@ class MainWindow(QMainWindow):
                 ins_btn = QPushButton(f"插入 @图片{i+1}")
                 ins_btn.setFixedSize(thumb_size, 18)
                 ins_btn.setCursor(Qt.PointingHandCursor)
-                ins_btn.setStyleSheet("background: rgba(125,211,252,0.18); color: #7dd3fc; border: none; border-radius: 3px; font-size: 10px;")
+                ins_btn.setStyleSheet("background: " + get_theme(self._theme)['accent_soft'] + "; color: " + get_theme(self._theme)['accent'] + "; border: none; border-radius: 3px; font-size: 10px;")
                 ins_btn.clicked.connect(lambda checked, n=i+1: self._insert_ref_token(f"@图片{n}"))
                 cl.addWidget(ins_btn, alignment=Qt.AlignCenter)
 
@@ -3346,6 +4183,61 @@ class MainWindow(QMainWindow):
             self._vid_video_ref_url_list.pop(index)
         self._refresh_vid_video_ref_list()
 
+    def on_add_vid_audio_ref(self):
+        url = self.vid_audio_ref_input.text().strip()
+        if not url:
+            return
+        if len(self._vid_audio_ref_url_list) >= 3:
+            QMessageBox.warning(self, "提示", "最多支持 3 条参考音频")
+            return
+        if not (url.startswith("http://") or url.startswith("https://")):
+            QMessageBox.warning(self, "提示", "请填写完整的 http(s) URL")
+            return
+        self._vid_audio_ref_url_list.append(url)
+        self.vid_audio_ref_input.clear()
+        self._refresh_vid_audio_ref_list()
+
+    def _remove_vid_audio_ref(self, index):
+        if 0 <= index < len(self._vid_audio_ref_url_list):
+            self._vid_audio_ref_url_list.pop(index)
+        self._refresh_vid_audio_ref_list()
+
+    def _refresh_vid_audio_ref_list(self):
+        while self.vid_audio_ref_list_layout.count():
+            w = self.vid_audio_ref_list_layout.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+        for i, url in enumerate(self._vid_audio_ref_url_list):
+            row = QWidget()
+            row.setStyleSheet("background: transparent;")
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(0, 0, 0, 0)
+            rl.setSpacing(6)
+            tag = QLabel(f"@声音{i+1}")
+            tag.setStyleSheet("color: " + get_theme(self._theme)['accent'] + "; font-size: 11px; min-width: 50px; background: transparent;")
+            rl.addWidget(tag)
+            url_lbl = QLabel(url)
+            url_lbl.setStyleSheet("color: " + get_theme(self._theme)['text_secondary'] + "; font-size: 11px; background: transparent;")
+            url_lbl.setToolTip(url)
+            url_lbl.setMaximumWidth(220)
+            url_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            rl.addWidget(url_lbl, 1)
+            ins_btn = QPushButton("插入")
+            ins_btn.setFixedSize(40, 20)
+            ins_btn.setCursor(Qt.PointingHandCursor)
+            ins_btn.setStyleSheet("background: " + get_theme(self._theme)['accent_soft'] + "; color: " + get_theme(self._theme)['accent'] + "; border: none; border-radius: 3px; font-size: 10px;")
+            ins_btn.clicked.connect(lambda checked, n=i+1: self._insert_ref_token(f"@声音{n}"))
+            rl.addWidget(ins_btn)
+            del_btn = QPushButton("×")
+            del_btn.setFixedSize(20, 20)
+            del_btn.setCursor(Qt.PointingHandCursor)
+            del_btn.setStyleSheet("background: rgba(255,107,107,0.2); color: #ff6b6b; border: none; border-radius: 3px; font-size: 12px;")
+            del_btn.clicked.connect(lambda checked, x=i: self._remove_vid_audio_ref(x))
+            rl.addWidget(del_btn)
+            self.vid_audio_ref_list_layout.addWidget(row)
+        count = len(self._vid_audio_ref_url_list)
+        self.vid_audio_ref_count_label.setText(f"已添加 {count}/3 条" if count > 0 else "")
+
     def _refresh_vid_video_ref_list(self):
         while self.vid_video_ref_list_layout.count():
             w = self.vid_video_ref_list_layout.takeAt(0).widget()
@@ -3358,10 +4250,10 @@ class MainWindow(QMainWindow):
             rl.setContentsMargins(0, 0, 0, 0)
             rl.setSpacing(6)
             tag = QLabel(f"@视频{i+1}")
-            tag.setStyleSheet("color: #7dd3fc; font-size: 11px; min-width: 50px;")
+            tag.setStyleSheet("color: " + get_theme(self._theme)['accent'] + "; font-size: 11px; min-width: 50px; background: transparent;")
             rl.addWidget(tag)
             url_lbl = QLabel(url)
-            url_lbl.setStyleSheet("color: #94a3b8; font-size: 11px;")
+            url_lbl.setStyleSheet("color: " + get_theme(self._theme)['text_secondary'] + "; font-size: 11px; background: transparent;")
             url_lbl.setToolTip(url)
             url_lbl.setMaximumWidth(220)
             url_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -3369,7 +4261,7 @@ class MainWindow(QMainWindow):
             ins_btn = QPushButton("插入")
             ins_btn.setFixedSize(40, 20)
             ins_btn.setCursor(Qt.PointingHandCursor)
-            ins_btn.setStyleSheet("background: rgba(125,211,252,0.18); color: #7dd3fc; border: none; border-radius: 3px; font-size: 10px;")
+            ins_btn.setStyleSheet("background: " + get_theme(self._theme)['accent_soft'] + "; color: " + get_theme(self._theme)['accent'] + "; border: none; border-radius: 3px; font-size: 10px;")
             ins_btn.clicked.connect(lambda checked, n=i+1: self._insert_ref_token(f"@视频{n}"))
             rl.addWidget(ins_btn)
             del_btn = QPushButton("×")
@@ -3398,6 +4290,9 @@ class MainWindow(QMainWindow):
         n_vids = len(self._vid_video_ref_url_list)
         for i in range(1, n_vids + 1):
             cands.append(f"视频{i}")
+        n_auds = len(self._vid_audio_ref_url_list)
+        for i in range(1, n_auds + 1):
+            cands.append(f"声音{i}")
         return cands
 
     def on_pick_keyframe(self, tag):
@@ -3490,13 +4385,16 @@ class MainWindow(QMainWindow):
         if is_sd:
             self.vid_video_ref_card.setVisible(True)
             self.vid_video_ref_title.setText("参考视频（可选）")
-            self.vid_video_ref_hint.setText("提示：最多 3 条，单视频 720–2160px，总大小 ≤200 MB，总时长 ≤15s，必须公网 URL")
+            self.vid_video_ref_hint.setText("提示：最多 3 条，分辨率 480p–720p，单段 2–15s、≤50MB，总时长 ≤15s，必须公网 URL")
+            self.vid_audio_ref_card.setVisible(True)
         elif is_kling:
             self.vid_video_ref_card.setVisible(True)
             self.vid_video_ref_title.setText("参考视频（可选）")
             self.vid_video_ref_hint.setText("提示：最多 1 条公网 URL；选了视频后图片上限降为 4 张")
+            self.vid_audio_ref_card.setVisible(False)
         else:
             self.vid_video_ref_card.setVisible(False)
+            self.vid_audio_ref_card.setVisible(False)
 
         self.vid_size_label.setVisible(is_sd or is_kling)
         self.vid_size_combo.setVisible(is_sd or is_kling)
@@ -3505,19 +4403,23 @@ class MainWindow(QMainWindow):
         if model == "sora-2":
             self.vid_img_ref_hint.setText("提示：sora-2 仅支持 1 张参考图片")
         elif is_sd:
-            self.vid_img_ref_hint.setText("提示：最多 4 张，单图 ≤5 MB，总 ≤20 MB；prompt 中可用 @1 @2... 引用")
+            self.vid_img_ref_hint.setText("提示：最多 9 张，单图 ≤30MB，所有素材总 ≤64MB；prompt 中可用 @1 @2... 引用")
         elif is_kling:
             self.vid_img_ref_hint.setText("提示：最多 7 张（带视频时降为 4 张）")
 
         max_imgs = self._current_max_images()
         max_vids = self._current_max_videos()
+        max_auds = VIDEO_MODEL_MAX_AUDIOS.get(model, 0)
         if len(self._vid_img_ref_data_list) > max_imgs:
             self._vid_img_ref_data_list[:] = self._vid_img_ref_data_list[:max_imgs]
         if len(self._vid_video_ref_url_list) > max_vids:
             self._vid_video_ref_url_list[:] = self._vid_video_ref_url_list[:max_vids]
+        if len(self._vid_audio_ref_url_list) > max_auds:
+            self._vid_audio_ref_url_list[:] = self._vid_audio_ref_url_list[:max_auds]
 
         self._refresh_vid_img_ref_preview()
         self._refresh_vid_video_ref_list()
+        self._refresh_vid_audio_ref_list()
         self._refresh_keyframe_thumb("start")
         self._refresh_keyframe_thumb("end")
 
@@ -3552,6 +4454,14 @@ class MainWindow(QMainWindow):
                 self.size_combo.setCurrentText(current_ratio)
         self.size_combo.blockSignals(False)
 
+        max_refs = IMAGE_MODEL_MAX_REFS.get(model, 4)
+        if hasattr(self, "img_ref_hint"):
+            self.img_ref_hint.setText(f"提示：参考图最多 {max_refs} 张")
+        if len(self._img_ref_data_list) > max_refs:
+            self._img_ref_data_list[:] = self._img_ref_data_list[:max_refs]
+            if hasattr(self, "_refresh_img_ref_preview"):
+                self._refresh_img_ref_preview()
+
     def on_generate(self):
         prompt = self.prompt_input.toPlainText().strip()
         print(f"[DEBUG] on_generate called, prompt='{prompt[:50]}', api_key='{self.api_key[:8] if self.api_key else 'NONE'}...'")
@@ -3563,90 +4473,214 @@ class MainWindow(QMainWindow):
             return
 
         count = int(self.img_count_combo.currentText())
-        self.gen_btn.setEnabled(False)
-        self.gen_btn.setText("生成中...")
-        self.save_btn.setEnabled(False)
-        self.image_data_list = []
-        self._img_done_count = 0
-        self._img_total = count
-        while self.img_results_layout.count():
-            w = self.img_results_layout.takeAt(0).widget()
-            if w:
-                w.deleteLater()
-        self.img_stack.setCurrentIndex(0)
-        self._start_search_anim()
         model = self.model_combo.currentText()
         img_ref_urls = [s["url"] for s in self._img_ref_data_list if s.get("url")]
 
         if model in GEMINI_MODELS and len(img_ref_urls) > GEMINI_MAX_REFERENCE_IMAGES:
-            self.gen_btn.setEnabled(True)
-            self.gen_btn.setText("⚡  生成图片")
-            self._stop_search_anim()
             QMessageBox.warning(self, "提示", f"{model} 最多支持 {GEMINI_MAX_REFERENCE_IMAGES} 张参考图，请删除多余的参考图后重试")
             return
 
-        img_ref = img_ref_urls if img_ref_urls else None
         ratio = self.size_combo.currentText()
         quality = self.quality_combo.currentText()
         if model in GEMINI_MODELS:
             actual_size = GEMINI_SIZE_MAP.get(ratio, {}).get(quality, "1024x1024")
         else:
             actual_size = SIZE_MAP.get(ratio, {}).get(quality, "1024x1024")
-        self._current_prompt = prompt
-        self._current_model = model
-        self._current_quality = quality
-        self._current_ratio = ratio
-        self.footer_status.setText(f"正在使用 {model} 生成 {count} 张图片 ({ratio} {quality} {actual_size})...")
-
-        self.thread = GenerateThread(
-            self.api_key, model, prompt,
-            actual_size,
-            quality,
-            self.format_combo.currentText(),
-            count,
-            image_url=img_ref
-        )
-        self.thread.one_finished.connect(self.on_one_image_ready)
-        self.thread.error.connect(self.on_img_error)
-        self.thread.progress.connect(lambda msg: self.footer_status.setText(msg))
-        self.thread.all_done.connect(self.on_all_images_done)
-        self.thread.start()
-
-    def on_one_image_ready(self, index, img_bytes):
-        self.image_data_list.append(img_bytes)
-        self._img_done_count += 1
-        self.footer_status.setText(f"已完成 {self._img_done_count}/{self._img_total} 张")
-
-        qimg = QImage.fromData(img_bytes)
-        if qimg.isNull():
-            return
-        pixmap = QPixmap.fromImage(qimg)
-        scaled = pixmap.scaled(150, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
         fmt = self.format_combo.currentText()
         ext = fmt if fmt == "png" else "jpg"
-        lbl = ClickableLabel(img_bytes, file_ext=ext)
-        lbl.setPixmap(scaled)
 
-        cols = 3
-        count = self.img_results_layout.count()
-        row, col = divmod(count, cols)
-        self.img_results_layout.addWidget(lbl, row, col)
-        self.img_stack.setCurrentIndex(1)
+        params = {
+            "model": model,
+            "prompt": prompt,
+            "size": actual_size,
+            "quality": quality,
+            "output_format": fmt,
+            "ext": ext,
+            "count": count,
+            "image_url": img_ref_urls if img_ref_urls else None,
+            "ratio": ratio,
+        }
+        summary = {
+            "label": f"{model} · {count}张 · {ratio} · {quality}",
+            "meta": f"{actual_size} · {fmt}",
+            "prompt": prompt,
+            "count": count,
+        }
+        task = Task("image", params, summary)
+        if not self.scheduler.enqueue(task):
+            QMessageBox.warning(self, "提示", f"队列已满（{self.scheduler.max_queue}/{self.scheduler.max_queue}），请等待")
+            return
+        self.footer_status.setText(f"任务 #{task.id} 已加入队列")
 
-    def on_img_error(self, index, msg):
-        self._img_done_count += 1
-        self.footer_status.setText(f"第{index+1}张失败: {msg}")
+    def on_generate_video(self):
+        prompt = self.video_prompt_input.toPlainText().strip()
+        if not prompt:
+            QMessageBox.warning(self, "提示", "请输入提示词")
+            return
 
-    def on_all_images_done(self):
-        self.gen_btn.setEnabled(True)
-        self.gen_btn.setText("⚡  生成图片")
-        self.save_btn.setEnabled(len(self.image_data_list) > 0)
-        total = len(self.image_data_list)
-        self.footer_status.setText(f"全部完成，成功 {total}/{self._img_total} 张")
-        self._stop_search_anim()
-        if self.image_data_list:
-            self._save_to_history()
+        model = self.video_model_combo.currentText()
+        limit = VIDEO_PROMPT_LIMIT.get(model)
+        if limit and len(prompt) > limit:
+            QMessageBox.warning(self, "提示", f"{model} 提示词不能超过 {limit} 字（当前 {len(prompt)} 字）")
+            return
+
+        if any(s.get("uploading") for s in self._vid_img_ref_data_list):
+            QMessageBox.warning(self, "提示", "参考图正在上传，请稍候")
+            return
+
+        count = int(self.vid_count_combo.currentText())
+        size_label = self.video_size_combo.currentText()
+        size_value = VIDEO_SIZES.get(size_label, "landscape")
+
+        vid_img_urls = [s["url"] for s in self._vid_img_ref_data_list if s.get("url")]
+        vid_video_urls = list(self._vid_video_ref_url_list)
+        vid_audio_urls = list(self._vid_audio_ref_url_list)
+        is_kling = model == "Kling Omni"
+        size_choice = self.vid_size_combo.currentText() if (model.startswith("sd-2") or is_kling) else ""
+        sd_size = size_choice if size_choice in ("large", "small") else None
+
+        start_url = self._vid_start_frame.get("url") if is_kling else None
+        end_url = self._vid_end_frame.get("url") if is_kling else None
+        if is_kling and bool(start_url) != bool(end_url):
+            QMessageBox.warning(self, "提示", "首尾帧模式需要同时上传首帧和尾帧")
+            return
+
+        duration = self.video_duration_combo.currentText()
+        params = {
+            "prompt": prompt,
+            "size": size_value,
+            "duration": duration,
+            "count": count,
+            "image_url": vid_img_urls if vid_img_urls else None,
+            "model": model,
+            "video_refs": vid_video_urls if vid_video_urls else None,
+            "audio_refs": vid_audio_urls if vid_audio_urls else None,
+            "sd_size": sd_size,
+            "start_image_url": start_url,
+            "end_image_url": end_url,
+            "orientation_label": size_label,
+        }
+        summary = {
+            "label": f"{model} · {count}个 · {size_label} · {duration}s",
+            "meta": (f"{sd_size or '自适应'}" if (model.startswith('sd-2') or is_kling) else ""),
+            "prompt": prompt,
+            "count": count,
+        }
+        task = Task("video", params, summary)
+        if not self.scheduler.enqueue(task):
+            QMessageBox.warning(self, "提示", f"队列已满（{self.scheduler.max_queue}/{self.scheduler.max_queue}），请等待")
+            return
+        self.footer_status.setText(f"视频任务 #{task.id} 已加入队列")
+
+    def _start_task(self, task):
+        """由 TaskScheduler 在调度时调用。启动对应 QThread。"""
+        tid = task.id
+        if task.kind == "image":
+            p = task.params
+            thread = GenerateThread(
+                self.api_key, p["model"], p["prompt"], p["size"], p["quality"],
+                p["output_format"], p["count"], image_url=p.get("image_url"),
+            )
+        else:
+            p = task.params
+            thread = VideoGenerateThread(
+                self.api_key, p["prompt"], p["size"], p["duration"], p["count"],
+                image_url=p.get("image_url"), model=p["model"],
+                video_refs=p.get("video_refs"), audio_refs=p.get("audio_refs"),
+                sd_size=p.get("sd_size"),
+                start_image_url=p.get("start_image_url"),
+                end_image_url=p.get("end_image_url"),
+            )
+        task.thread = thread
+        thread.one_finished.connect(lambda idx, data, tid=tid: self.scheduler.on_task_one_finished(tid, idx, data))
+        thread.error.connect(lambda idx, msg, tid=tid: self.scheduler.on_task_error(tid, idx, msg))
+        thread.progress.connect(lambda msg, tid=tid: self._on_task_progress(tid, msg))
+        thread.all_done.connect(lambda tid=tid: self.scheduler.on_task_all_done(tid))
+        thread.start()
+
+    def _on_task_progress(self, task_id, msg):
+        if self._is_transient_status_active():
+            return
+        self.footer_status.setText(f"#{task_id} {msg}")
+
+    def _show_transient_status(self, text, duration_ms=2500):
+        self._transient_status_until = (datetime.now().timestamp() * 1000) + duration_ms
+        self.footer_status.setText(text)
+        QTimer.singleShot(duration_ms + 50, self._refresh_status_bar)
+
+    def _is_transient_status_active(self):
+        until = getattr(self, "_transient_status_until", 0)
+        return datetime.now().timestamp() * 1000 < until
+
+    def _on_task_state_changed(self, task_id):
+        task = self.scheduler.all_tasks.get(task_id)
+        card = self._task_cards.get(task_id)
+        if task is None:
+            if card is not None:
+                card.setParent(None)
+                card.deleteLater()
+                self._task_cards.pop(task_id, None)
+                self._refresh_task_views()
+            return
+        if card is None:
+            self._refresh_task_views()
+        else:
+            card.update_state()
+        self._refresh_status_bar()
+
+    def _refresh_task_views(self):
+        """重排所有 TaskCard，按 tab 分别显示。"""
+        # 清空两个 layout
+        for layout in (self.img_results_layout, self.vid_results_layout):
+            while layout.count():
+                item = layout.takeAt(0)
+                w = item.widget()
+                if w is not None:
+                    w.setParent(None)
+        # 重新生成
+        self._task_cards = {}
+        all_tasks = sorted(self.scheduler.all_tasks.values(), key=lambda t: t.id)
+        for t in all_tasks:
+            card = TaskCard(t, self)
+            self._task_cards[t.id] = card
+            if t.kind == "image":
+                self.img_results_layout.addWidget(card)
+            else:
+                self.vid_results_layout.addWidget(card)
+        self.img_results_layout.addStretch()
+        self.vid_results_layout.addStretch()
+        # 切换 stack 显示
+        has_img = any(t.kind == "image" for t in all_tasks)
+        has_vid = any(t.kind == "video" for t in all_tasks)
+        self.img_stack.setCurrentIndex(1 if has_img else 0)
+        self.vid_stack.setCurrentIndex(1 if has_vid else 0)
+
+    def _refresh_status_bar(self):
+        if not hasattr(self, "footer_status"):
+            return
+        if self._is_transient_status_active():
+            return
+        img_run, vid_run, queued = self.scheduler.counts_by_kind()
+        text = f"图片 {img_run} 跑 · 视频 {vid_run} 跑 · 排队 {queued}"
+        self.footer_status.setText(text)
+        # tab stack: 没任务时回到 placeholder
+        has_img = any(t.kind == "image" for t in self.scheduler.all_tasks.values())
+        has_vid = any(t.kind == "video" for t in self.scheduler.all_tasks.values())
+        if hasattr(self, "img_stack"):
+            self.img_stack.setCurrentIndex(1 if has_img else 0)
+        if hasattr(self, "vid_stack"):
+            self.vid_stack.setCurrentIndex(1 if has_vid else 0)
+
+    def _on_task_finished(self, task):
+        """每个任务完成后保存历史 + 刷新余额。"""
+        try:
+            if task.kind == "image":
+                self._save_image_task_to_history(task)
+            else:
+                self._save_video_task_to_history(task)
+        except Exception as e:
+            print(f"[DEBUG] save history failed: {e}", flush=True)
         self.refresh_balance()
 
     def _start_search_anim(self):
@@ -3687,277 +4721,42 @@ class MainWindow(QMainWindow):
             self.vid_search_icon.move(int(hx + x_off), int(hy + y_off))
             self._vid_icon_opacity.setOpacity(opacity)
 
-    def _get_selected_labels(self):
-        selected = []
-        for i in range(self.img_results_layout.count()):
-            w = self.img_results_layout.itemAt(i).widget()
-            if w and isinstance(w, ClickableLabel) and w.checked:
-                selected.append(w)
-        return selected
-
-    def on_select_all_images(self):
-        all_checked = True
-        for i in range(self.img_results_layout.count()):
-            w = self.img_results_layout.itemAt(i).widget()
-            if w and isinstance(w, ClickableLabel) and not w.checked:
-                all_checked = False
-                break
-        for i in range(self.img_results_layout.count()):
-            w = self.img_results_layout.itemAt(i).widget()
-            if w and isinstance(w, ClickableLabel):
-                w.checked = not all_checked
-                w._update_border()
-        self.select_all_btn.setText("取消全选" if not all_checked else "全选")
-
-    def on_save(self):
-        selected = self._get_selected_labels()
-        if not selected:
-            if self.image_data_list:
-                QMessageBox.information(self, "提示", "请先单击选中要保存的图片（蓝色边框表示选中）")
-            return
-        fmt = self.format_combo.currentText()
-        ext = fmt if fmt == "png" else "jpg"
-        if len(selected) == 1:
-            default_name = f"gpt_image_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{ext}"
-            if fmt == "png":
-                filters = "PNG 图片 (*.png);;JPEG 图片 (*.jpg);;所有文件 (*)"
-            else:
-                filters = "JPEG 图片 (*.jpg);;PNG 图片 (*.png);;所有文件 (*)"
-            path, _ = QFileDialog.getSaveFileName(
-                self, "保存图片",
-                os.path.join(os.path.expanduser("~"), "Desktop", default_name),
-                filters
-            )
-            if path:
-                with open(path, "wb") as f:
-                    f.write(selected[0].raw_bytes)
-                self.footer_status.setText(f"已保存到: {path}")
-        else:
-            folder = QFileDialog.getExistingDirectory(
-                self, "选择保存文件夹",
-                os.path.join(os.path.expanduser("~"), "Desktop")
-            )
-            if folder:
-                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-                for i, lbl in enumerate(selected):
-                    path = os.path.join(folder, f"gpt_image_{ts}_{i+1}.{ext}")
-                    with open(path, "wb") as f:
-                        f.write(lbl.raw_bytes)
-                self.footer_status.setText(f"已保存 {len(selected)} 张到: {folder}")
-
-    def on_generate_video(self):
-        prompt = self.video_prompt_input.toPlainText().strip()
-        if not prompt:
-            QMessageBox.warning(self, "提示", "请输入提示词")
-            return
-
-        model = self.video_model_combo.currentText()
-        limit = VIDEO_PROMPT_LIMIT.get(model)
-        if limit and len(prompt) > limit:
-            QMessageBox.warning(self, "提示", f"{model} 提示词不能超过 {limit} 字（当前 {len(prompt)} 字）")
-            return
-
-        if any(s.get("uploading") for s in self._vid_img_ref_data_list):
-            QMessageBox.warning(self, "提示", "参考图正在上传，请稍候")
-            return
-
-        count = int(self.vid_count_combo.currentText())
-        self.video_gen_btn.setEnabled(False)
-        self.video_gen_btn.setText("生成中...")
-        self.video_save_btn.setEnabled(False)
-        self.video_data_list = []
-        self._vid_done_count = 0
-        self._vid_total = count
-        self.vid_placeholder_title.setText("生成中")
-        self.vid_placeholder_desc.setText(f"正在生成 {count} 个视频，请耐心等待...")
-        self.vid_stack.setCurrentIndex(0)
-        while self.vid_results_layout.count():
-            w = self.vid_results_layout.takeAt(0).widget()
-            if w:
-                w.deleteLater()
-        self.footer_status.setText(f"正在使用 {model} 生成 {count} 个视频...")
-        self._start_search_anim()
-
-        size_label = self.video_size_combo.currentText()
-        size_value = VIDEO_SIZES.get(size_label, "landscape")
-
-        self._current_video_prompt = prompt
-        self._current_video_model = model
-        self._current_video_orientation = size_label
-        self._current_video_duration = self.video_duration_combo.currentText()
-
-        vid_img_urls = [s["url"] for s in self._vid_img_ref_data_list if s.get("url")]
-        vid_video_urls = list(self._vid_video_ref_url_list)
-        is_kling = model == "Kling Omni"
-        size_choice = self.vid_size_combo.currentText() if (model.startswith("sd-2") or is_kling) else ""
-        sd_size = size_choice if size_choice in ("large", "small") else None
-
-        start_url = self._vid_start_frame.get("url") if is_kling else None
-        end_url = self._vid_end_frame.get("url") if is_kling else None
-        if is_kling and bool(start_url) != bool(end_url):
-            QMessageBox.warning(self, "提示", "首尾帧模式需要同时上传首帧和尾帧")
-            self.video_gen_btn.setEnabled(True)
-            self.video_gen_btn.setText("⚡  生成视频")
-            self._stop_search_anim()
-            return
-
-        self.video_thread = VideoGenerateThread(
-            self.api_key, prompt, size_value,
-            self.video_duration_combo.currentText(),
-            count,
-            image_url=vid_img_urls if vid_img_urls else None,
-            model=model,
-            video_refs=vid_video_urls if vid_video_urls else None,
-            sd_size=sd_size,
-            start_image_url=start_url,
-            end_image_url=end_url,
-        )
-        self.video_thread.one_finished.connect(self.on_one_video_ready)
-        self.video_thread.progress.connect(self.on_video_progress)
-        self.video_thread.error.connect(self.on_vid_error)
-        self.video_thread.all_done.connect(self.on_all_videos_done)
-        self.video_thread.start()
-
-    def on_video_progress(self, msg):
-        self.video_status_label.setText(msg)
-        self.footer_status.setText(msg)
-
-    def on_one_video_ready(self, index, vid_bytes):
-        self.video_data_list.append(vid_bytes)
-        self._vid_done_count += 1
-        size_kb = len(vid_bytes) / 1024
-        if size_kb > 1024:
-            size_str = f"{size_kb / 1024:.1f} MB"
-        else:
-            size_str = f"{size_kb:.0f} KB"
-        self.footer_status.setText(f"已完成 {self._vid_done_count}/{self._vid_total} 个视频")
-
-        card = ClickableLabel(vid_bytes, file_ext="mp4", is_video=True)
-        thumb_bytes = extract_video_first_frame_bytes(vid_bytes)
-        thumb_pixmap = None
-        if thumb_bytes:
-            qimg = QImage.fromData(thumb_bytes)
-            if not qimg.isNull():
-                pm = QPixmap.fromImage(qimg)
-                thumb_pixmap = pm.scaled(150, 150, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-                w = thumb_pixmap.width()
-                h = thumb_pixmap.height()
-                thumb_pixmap = thumb_pixmap.copy(max(0, (w - 150) // 2), max(0, (h - 150) // 2), 150, 150)
-        if thumb_pixmap:
-            card.setPixmap(thumb_pixmap)
-            card.setText("")
-        else:
-            card.setText(f"🎬\n\n视频 {index+1}\n{size_str}")
-        card._vid_style_base = """
-            QLabel { border: 2px solid transparent; border-radius: 8px; padding: 0px;
-                     background-color: rgba(15, 21, 36, 0.4); color: #a0b4c4; font-size: 13px; }
-            QLabel:hover { border-color: rgba(125, 211, 252, 0.3); background-color: rgba(125, 211, 252, 0.05); }
-        """
-        card._vid_style_checked = """
-            QLabel { border: 3px solid #7dd3fc; border-radius: 8px; padding: 0px;
-                     background-color: rgba(125, 211, 252, 0.08); color: #a0b4c4; font-size: 13px; }
-        """
-        card.setStyleSheet(card._vid_style_base)
-
-        cols = 3
-        count = self.vid_results_layout.count()
-        row, col = divmod(count, cols)
-        self.vid_results_layout.addWidget(card, row, col)
-        self.vid_stack.setCurrentIndex(1)
-
-    def on_vid_error(self, index, msg):
-        self._vid_done_count += 1
-        self.footer_status.setText(f"第{index+1}个视频失败: {msg}")
-
-    def on_all_videos_done(self):
-        self.video_gen_btn.setEnabled(True)
-        self.video_gen_btn.setText("⚡  生成视频")
-        self.video_save_btn.setEnabled(len(self.video_data_list) > 0)
-        total = len(self.video_data_list)
-        if total > 0:
-            self.vid_stack.setCurrentIndex(1)
-            self._save_videos_to_history()
-        self.footer_status.setText(f"全部完成，成功 {total}/{self._vid_total} 个视频")
-        self._stop_search_anim()
-        self.vid_placeholder_title.setText("等待生成")
-        self.vid_placeholder_desc.setText("输入提示词并调整参数，生成高质量 AI 视频")
-        self.refresh_balance()
-
-    def on_select_all_videos(self):
-        all_checked = True
-        for i in range(self.vid_results_layout.count()):
-            w = self.vid_results_layout.itemAt(i).widget()
-            if w and isinstance(w, ClickableLabel) and not w.checked:
-                all_checked = False
-                break
-        for i in range(self.vid_results_layout.count()):
-            w = self.vid_results_layout.itemAt(i).widget()
-            if w and isinstance(w, ClickableLabel):
-                w.checked = not all_checked
-                w._update_border()
-        self.vid_select_all_btn.setText("取消全选" if not all_checked else "全选")
-
-    def on_save_video(self):
-        selected = []
-        for i in range(self.vid_results_layout.count()):
-            w = self.vid_results_layout.itemAt(i).widget()
-            if w and isinstance(w, ClickableLabel) and w.checked:
-                selected.append(w)
-        if not selected:
-            if self.video_data_list:
-                QMessageBox.information(self, "提示", "请先单击选中要保存的视频（蓝色边框表示选中）")
-            return
-        if len(selected) == 1:
-            default_name = f"sora_video_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-            filters = "MP4 视频 (*.mp4);;所有文件 (*)"
-            path, _ = QFileDialog.getSaveFileName(
-                self, "保存视频",
-                os.path.join(os.path.expanduser("~"), "Desktop", default_name),
-                filters
-            )
-            if path:
-                with open(path, "wb") as f:
-                    f.write(selected[0].raw_bytes)
-                self.footer_status.setText(f"已保存到: {path}")
-        else:
-            folder = QFileDialog.getExistingDirectory(
-                self, "选择保存文件夹",
-                os.path.join(os.path.expanduser("~"), "Desktop")
-            )
-            if folder:
-                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-                for i, lbl in enumerate(selected):
-                    path = os.path.join(folder, f"sora_video_{ts}_{i+1}.mp4")
-                    with open(path, "wb") as f:
-                        f.write(lbl.raw_bytes)
-                self.footer_status.setText(f"已保存 {len(selected)} 个视频到: {folder}")
-
-    def _save_to_history(self):
+    def _save_image_task_to_history(self, task):
         ensure_history_dir()
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-        fmt = self.format_combo.currentText()
-        ext = fmt if fmt == "png" else "jpg"
+        ext = task.params.get("ext", "png")
         img_paths = []
-        for i, data in enumerate(self.image_data_list):
-            filename = f"{ts}_{i+1}.{ext}"
+        for i, data in enumerate(task.results):
+            filename = f"{ts}_t{task.id}_{i+1}.{ext}"
             filepath = os.path.join(HISTORY_DIR, filename)
             with open(filepath, "wb") as f:
                 f.write(data)
             img_paths.append(filename)
-        add_history_record(
-            self._current_prompt,
-            self._current_model,
-            self._current_quality,
-            self._current_ratio,
-            img_paths
-        )
+        record_kind = "image" if img_paths else "image_failed"
+        records = load_history()
+        records.insert(0, {
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "task_id": task.id,
+            "prompt": task.params.get("prompt", ""),
+            "model": task.params.get("model", ""),
+            "quality": task.params.get("quality", ""),
+            "ratio": task.params.get("ratio", ""),
+            "kind": record_kind,
+            "images": img_paths,
+            "status": task.status,
+            "error": task.error_msg,
+            "expected": task.total,
+        })
+        if len(records) > 200:
+            records = records[:200]
+        save_history(records)
 
-    def _save_videos_to_history(self):
+    def _save_video_task_to_history(self, task):
         ensure_history_dir()
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
         video_paths = []
-        for i, data in enumerate(self.video_data_list):
-            filename = f"video_{ts}_{i+1}.mp4"
+        for i, data in enumerate(task.results):
+            filename = f"video_{ts}_t{task.id}_{i+1}.mp4"
             filepath = os.path.join(HISTORY_DIR, filename)
             with open(filepath, "wb") as f:
                 f.write(data)
@@ -3969,17 +4768,28 @@ class MainWindow(QMainWindow):
                         tf.write(thumb_bytes)
             except Exception:
                 pass
-        add_video_history_record(
-            getattr(self, "_current_video_prompt", ""),
-            getattr(self, "_current_video_model", "sora-2"),
-            getattr(self, "_current_video_orientation", ""),
-            getattr(self, "_current_video_duration", ""),
-            video_paths,
-        )
+        record_kind = "video" if video_paths else "video_failed"
+        records = load_history()
+        records.insert(0, {
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "task_id": task.id,
+            "prompt": task.params.get("prompt", ""),
+            "model": task.params.get("model", ""),
+            "quality": f"{task.params.get('duration','')}s",
+            "ratio": task.params.get("orientation_label", ""),
+            "kind": record_kind,
+            "images": video_paths,
+            "status": task.status,
+            "error": task.error_msg,
+            "expected": task.total,
+        })
+        if len(records) > 200:
+            records = records[:200]
+        save_history(records)
 
     def _build_history_page(self):
         page = QWidget()
-        page.setStyleSheet("background-color: #0a0e1a;")
+        page.setStyleSheet(f"background-color: {get_theme(self._theme)['bg_main']};")
         self._bg_pages.append(page)
         layout = QVBoxLayout(page)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -3988,7 +4798,7 @@ class MainWindow(QMainWindow):
         header = QHBoxLayout()
         title = QLabel("生成历史记录")
         title.setObjectName("sectionLabel")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #e0e8f0;")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: " + get_theme(self._theme)['text_primary'] + "; background: transparent;")
         header.addWidget(title)
         header.addStretch()
 
@@ -4032,24 +4842,24 @@ class MainWindow(QMainWindow):
         records = load_history()
         if not records:
             empty = QLabel("暂无历史记录")
-            empty.setStyleSheet("color: #6b7b8f; font-size: 14px; padding: 40px;")
+            empty.setStyleSheet(f"color: {get_theme(self._theme)['text_muted']}; font-size: 14px; padding: 40px; background: transparent;")
             empty.setAlignment(Qt.AlignCenter)
             self.history_layout.addWidget(empty)
             self.history_layout.addStretch()
             return
 
         for record in records:
+            theme = get_theme(self._theme)
             card = QFrame()
-            card.setStyleSheet("""
-                QFrame {
-                    background: rgba(255,255,255,0.03);
-                    border: 1px solid rgba(255,255,255,0.06);
+            card.setStyleSheet(f"""
+                QFrame {{
+                    background: {theme['bg_card_solid']};
+                    border: 1px solid {theme['border_soft']};
                     border-radius: 10px;
-                }
-                QFrame:hover {
-                    background: rgba(255,255,255,0.05);
-                    border: 1px solid rgba(255,255,255,0.1);
-                }
+                }}
+                QFrame:hover {{
+                    border: 1px solid {theme['accent_border']};
+                }}
             """)
             card_layout = QHBoxLayout(card)
             card_layout.setContentsMargins(12, 12, 12, 12)
@@ -4075,14 +4885,14 @@ class MainWindow(QMainWindow):
                         y = max(0, (scaled.height() - 80) // 2)
                         lbl.setPixmap(scaled.copy(x, y, 80, 80))
                         lbl.setStyleSheet(
-                            "background:rgba(125,211,252,0.08);"
-                            "border:1px solid rgba(125,211,252,0.3); border-radius:6px;"
+                            "background:" + theme['accent_softer'] + ";"
+                            "border:1px solid " + theme['accent_border'] + "; border-radius:6px;"
                         )
                     else:
                         lbl.setText("🎬")
                         lbl.setStyleSheet(
-                            "color:#7dd3fc; font-size:32px; background:rgba(125,211,252,0.08);"
-                            "border:1px solid rgba(125,211,252,0.3); border-radius:6px;"
+                            "color:" + theme['accent'] + "; font-size:32px; background:" + theme['accent_softer'] + ";"
+                            "border:1px solid " + theme['accent_border'] + "; border-radius:6px;"
                         )
                     lbl.setFixedSize(80, 80)
                     lbl._hist_file = img_file
@@ -4109,13 +4919,13 @@ class MainWindow(QMainWindow):
                 prompt_text = prompt_text[:80] + "..."
             prompt_lbl = QLabel(prompt_text)
             prompt_lbl.setWordWrap(True)
-            prompt_lbl.setStyleSheet("color: #e0e8f0; font-size: 12px; border: none;")
+            prompt_lbl.setStyleSheet(f"color: {theme['text_primary']}; font-size: 12px; border: none; background: transparent;")
             info_layout.addWidget(prompt_lbl)
 
             unit = "个视频" if is_video_record else "张"
             meta = f"{record.get('time', '')}  |  {record.get('model', '')}  |  {record.get('quality', '')}  |  {record.get('ratio', '')}  |  {len(record.get('images', []))} {unit}"
             meta_lbl = QLabel(meta)
-            meta_lbl.setStyleSheet("color: #6b7b8f; font-size: 11px; border: none;")
+            meta_lbl.setStyleSheet(f"color: {theme['text_muted']}; font-size: 11px; border: none; background: transparent;")
             info_layout.addWidget(meta_lbl)
 
             info_layout.addStretch()
@@ -4123,14 +4933,14 @@ class MainWindow(QMainWindow):
 
             dl_btn = QPushButton("下载")
             dl_btn.setCursor(Qt.PointingHandCursor)
-            dl_btn.setStyleSheet("""
-                QPushButton {
-                    background: rgba(125,211,252,0.1); color: #7dd3fc;
-                    border: 1px solid rgba(125,211,252,0.3); border-radius: 6px;
-                    padding: 8px 16px; font-size: 12px;
-                }
-                QPushButton:hover { background: rgba(125,211,252,0.2); }
-            """)
+            dl_btn.setStyleSheet(
+                "QPushButton {"
+                " background: " + theme['accent_softer'] + "; color: " + theme['accent'] + ";"
+                " border: 1px solid " + theme['accent_border'] + "; border-radius: 6px;"
+                " padding: 8px 16px; font-size: 12px;"
+                " }"
+                "QPushButton:hover { background: " + theme['accent_soft'] + "; }"
+            )
             img_files = record.get("images", [])
             dl_btn.clicked.connect(lambda checked, files=img_files, labels=thumb_labels: self._download_history_images(files, labels))
             card_layout.addWidget(dl_btn)
@@ -4202,7 +5012,8 @@ if __name__ == "__main__":
 
     while True:
         saved = load_api_key()
-        dlg = KeyDialog(prefill_key=saved)
+        ui = load_ui_settings()
+        dlg = KeyDialog(prefill_key=saved, theme=ui.get("theme", DEFAULT_THEME))
         if dlg.exec_() != QDialog.Accepted:
             sys.exit(0)
         api_key = dlg.get_key()
