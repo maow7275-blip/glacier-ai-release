@@ -22,7 +22,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[('logo.png', '.')],
-    hiddenimports=[],
+    hiddenimports=['cv2', 'ffpyplayer', 'ffpyplayer.player', 'ffpyplayer.pic'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -65,11 +65,11 @@ app = BUNDLE(
     name='GlacierAI.app',
     icon='logo.icns',
     bundle_identifier='com.glacier.ai.tool',
-    version='3.0.1',
+    version='3.2.1',
     info_plist={
         'NSHighResolutionCapable': 'True',
-        'CFBundleShortVersionString': '3.0.1',
-        'CFBundleVersion': '3.0.1',
+        'CFBundleShortVersionString': '3.2.1',
+        'CFBundleVersion': '3.2.1',
         'NSPrincipalClass': 'NSApplication',
     },
 )

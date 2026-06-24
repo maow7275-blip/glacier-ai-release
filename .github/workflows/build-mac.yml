@@ -35,7 +35,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyqt5 requests pyinstaller
+          pip install pyqt5 requests pyinstaller opencv-python ffpyplayer
 
       - name: Generate .icns from logo.png
         run: |

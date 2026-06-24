@@ -164,6 +164,8 @@ GEMINI_API_URL = "https://www.hfsyapi.cn/v1beta/models/gemini-3-pro-image-previe
 FILE_UPLOAD_URL = "https://www.hfsyapi.cn/v1/files/image-upload"
 BALANCE_URL = "https://www.hfsyapi.cn/api/usage/token/fund"
 
+NO_PROXIES = {"http": None, "https": None}
+
 RATIO_LIST = ["1:1", "5:4", "9:16", "16:9", "4:3", "3:2", "4:5", "3:4", "2:3", "21:9"]
 
 GEMINI_RATIO_LIST = ["1:1", "4:3", "3:4", "16:9", "9:16"]
@@ -891,6 +893,7 @@ def get_logo_path():
 def setup_combo(combo):
     combo.setMaxVisibleItems(20)
     combo.view().setMouseTracking(True)
+    combo.wheelEvent = lambda e: e.ignore()
 
 
 
@@ -995,7 +998,7 @@ class KeyDialog(QDialog):
         subtitle.setObjectName("loginSubtitle")
         card_layout.addWidget(subtitle)
 
-        version = QLabel("VERSION 3.2")
+        version = QLabel("VERSION 3.2.1")
         version.setObjectName("loginVersion")
         card_layout.addWidget(version)
 
@@ -1112,6 +1115,7 @@ class UploadRefImageThread(QThread):
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 files={"file": (filename, img_bytes, mime)},
                 timeout=120,
+                proxies=NO_PROXIES,
             )
         except Exception as e:
             self.failed.emit(self.tag, f"上传请求失败: {e}")
@@ -1156,6 +1160,7 @@ class BalanceQueryThread(QThread):
                 BALANCE_URL,
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 timeout=15,
+                proxies=NO_PROXIES,
             )
         except Exception as e:
             self.failed.emit(f"网络错误: {e}")
@@ -1249,9 +1254,12 @@ class GenerateThread(QThread):
         max_retries = 2
         resp = None
         for attempt in range(max_retries + 1):
-            resp = requests.post(API_URL, headers=headers, json=payload, timeout=600)
-            with open("debug_output.log", "a", encoding="utf-8") as _f:
-                _f.write(f"[RESP] model={self.model}, status={resp.status_code}, body={resp.text[:500]}\n")
+            resp = requests.post(API_URL, headers=headers, json=payload, timeout=600, proxies=NO_PROXIES)
+            try:
+                with open("debug_output.log", "a", encoding="utf-8") as _f:
+                    _f.write(f"[RESP] model={self.model}, status={resp.status_code}, body={resp.text[:500]}\n")
+            except Exception:
+                pass
             print(f"[DEBUG] Response status={resp.status_code}, body={resp.text[:300]}", flush=True)
             if resp.status_code == 200:
                 break
@@ -1298,7 +1306,7 @@ class GenerateThread(QThread):
                 dl_url = img_url
             print(f"[DEBUG] Downloading image from: {dl_url}", flush=True)
             dl_headers = {"Authorization": f"Bearer {self.api_key}"}
-            img_resp = requests.get(dl_url, headers=dl_headers, timeout=120)
+            img_resp = requests.get(dl_url, headers=dl_headers, timeout=120, proxies=NO_PROXIES)
             print(f"[DEBUG] Download status={img_resp.status_code}, content_length={len(img_resp.content)}, content_type={img_resp.headers.get('content-type','?')}", flush=True)
             if img_resp.status_code == 200 and len(img_resp.content) > 1000:
                 content_type = img_resp.headers.get("content-type", "")
@@ -1314,7 +1322,7 @@ class GenerateThread(QThread):
                     elif file_id:
                         print(f"[DEBUG] Not an image, trying file_id fallback...", flush=True)
                         fb_url = f"https://www.hfsyapi.cn/v1/files/{file_id}/content"
-                        fb_resp = requests.get(fb_url, headers=dl_headers, timeout=120)
+                        fb_resp = requests.get(fb_url, headers=dl_headers, timeout=120, proxies=NO_PROXIES)
                         if fb_resp.status_code == 200 and len(fb_resp.content) > 2000:
                             self.one_finished.emit(index, fb_resp.content)
                         else:
@@ -1374,9 +1382,12 @@ class GenerateThread(QThread):
         max_retries = 2
         resp = None
         for attempt in range(max_retries + 1):
-            resp = requests.post(GEMINI_API_URL, headers=headers, json=payload, timeout=600)
-            with open("debug_output.log", "a", encoding="utf-8") as _f:
-                _f.write(f"[RESP] model={self.model}, status={resp.status_code}, body={resp.text[:500]}\n")
+            resp = requests.post(GEMINI_API_URL, headers=headers, json=payload, timeout=600, proxies=NO_PROXIES)
+            try:
+                with open("debug_output.log", "a", encoding="utf-8") as _f:
+                    _f.write(f"[RESP] model={self.model}, status={resp.status_code}, body={resp.text[:500]}\n")
+            except Exception:
+                pass
             print(f"[DEBUG] Gemini response status={resp.status_code}, body={resp.text[:300]}", flush=True)
             if resp.status_code == 200:
                 break
@@ -1416,7 +1427,7 @@ class GenerateThread(QThread):
 
         print(f"[DEBUG] Downloading gemini image from: {img_url}", flush=True)
         dl_headers = {"Authorization": f"Bearer {self.api_key}"}
-        img_resp = requests.get(img_url, headers=dl_headers, timeout=120)
+        img_resp = requests.get(img_url, headers=dl_headers, timeout=120, proxies=NO_PROXIES)
         print(f"[DEBUG] Gemini download status={img_resp.status_code}, length={len(img_resp.content)}", flush=True)
 
         if img_resp.status_code == 200 and len(img_resp.content) > 1000:
@@ -1455,8 +1466,11 @@ class GenerateThread(QThread):
             import traceback
             tb = traceback.format_exc()
             print(f"[DEBUG] _safe_generate({index}) Exception: {e}\n{tb}", flush=True)
-            with open("debug_output.log", "a", encoding="utf-8") as _f:
-                _f.write(f"[EXCEPTION] index={index}: {e}\n{tb}\n")
+            try:
+                with open("debug_output.log", "a", encoding="utf-8") as _f:
+                    _f.write(f"[EXCEPTION] index={index}: {e}\n{tb}\n")
+            except Exception:
+                pass
             self.error.emit(index, f"第{index+1}张错误: {str(e)}")
 
 
@@ -1525,7 +1539,7 @@ class VideoGenerateThread(QThread):
         self.progress.emit(f"第{index+1}个视频: 正在提交请求...")
         resp = None
         for attempt in range(3):
-            resp = requests.post(VIDEO_API_URL, headers=headers, json=payload, timeout=600)
+            resp = requests.post(VIDEO_API_URL, headers=headers, json=payload, timeout=600, proxies=NO_PROXIES)
             _log("POST", f"attempt={attempt}, status={resp.status_code}, body={resp.text[:800]}")
             if resp.status_code == 200:
                 break
@@ -1562,7 +1576,7 @@ class VideoGenerateThread(QThread):
         for i in range(120):
             time.sleep(5)
             try:
-                poll_resp = requests.get(query_url, headers=headers, timeout=30)
+                poll_resp = requests.get(query_url, headers=headers, timeout=30, proxies=NO_PROXIES)
             except Exception as e:
                 _log("POLL_ERR", f"i={i}, err={e}")
                 continue
@@ -1598,7 +1612,7 @@ class VideoGenerateThread(QThread):
                 _log("COMPLETED", f"poll_iter={i}, elapsed={(i+1)*5}s, url={video_url[:120]}")
                 self.progress.emit(f"第{index+1}个视频: 正在下载...")
                 dl_start = time.time()
-                vid_resp = requests.get(video_url, timeout=300)
+                vid_resp = requests.get(video_url, timeout=300, proxies=NO_PROXIES)
                 dl_elapsed = time.time() - dl_start
                 _log("DOWNLOAD", f"status={vid_resp.status_code}, bytes={len(vid_resp.content)}, elapsed={dl_elapsed:.1f}s")
                 if vid_resp.status_code == 200:
@@ -1973,7 +1987,7 @@ class TaskCard(QFrame):
             return
         is_video = self.task.kind == "video"
         ext = self.task.params.get("ext", "png") if not is_video else "mp4"
-        cols = 4
+        cols = 3
         for i, data in enumerate(self.task.results):
             if is_video:
                 lbl = ClickableLabel(data, file_ext="mp4", is_video=True)
@@ -1993,7 +2007,7 @@ class TaskCard(QFrame):
                 qimg = QImage.fromData(data)
                 if not qimg.isNull():
                     pixmap = QPixmap.fromImage(qimg)
-                    scaled = pixmap.scaled(150, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    scaled = pixmap.scaled(140, 140, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     lbl.setPixmap(scaled)
             row, col = divmod(i, cols)
             self.thumbs_layout.addWidget(lbl, row, col)
@@ -2027,7 +2041,18 @@ class TaskCard(QFrame):
     def _on_save_selected(self):
         labels = self._selected_labels()
         if not labels:
-            QMessageBox.information(self, "提示", "请先单击选中要保存的项（蓝色边框表示选中）")
+            mb = QMessageBox(self)
+            mb.setWindowTitle("提示")
+            mb.setIcon(QMessageBox.Information)
+            mb.setText("请先单击选中要保存的项（蓝色边框表示选中）")
+            mb.setStyleSheet(
+                "QMessageBox { background-color: #ffffff; min-width: 380px; }"
+                "QMessageBox QLabel { color: #000000; font-size: 16px; padding: 8px 4px; }"
+                "QMessageBox QPushButton { color: #ffffff; background-color: #2563eb;"
+                " border: none; border-radius: 6px; padding: 6px 18px; min-width: 64px; font-size: 15px; }"
+                "QMessageBox QPushButton:hover { background-color: #1d4ed8; }"
+            )
+            mb.exec_()
             return
         is_video = self.task.kind == "video"
         if is_video:
@@ -2757,6 +2782,7 @@ class SettingsDialog(QDialog):
         theme_label.setFixedWidth(80)
         self.theme_combo = QComboBox()
         self.theme_combo.setObjectName("themeCombo")
+        self.theme_combo.wheelEvent = lambda e: e.ignore()
         self._theme_keys = list(THEMES.keys())
         for k in self._theme_keys:
             self.theme_combo.addItem(THEMES[k]["name"], k)
@@ -2812,6 +2838,7 @@ class SettingsDialog(QDialog):
         conc_label.setFixedWidth(80)
         self.conc_combo = QComboBox()
         self.conc_combo.setObjectName("themeCombo")
+        self.conc_combo.wheelEvent = lambda e: e.ignore()
         for n in range(1, 6):
             self.conc_combo.addItem(str(n), n)
         try:
@@ -3064,7 +3091,7 @@ class MainWindow(QMainWindow):
         title = QLabel("GLACIER ENGINE")
         title.setObjectName("navTitle")
         header_layout.addWidget(title)
-        ver = QLabel("V3.2 Stable")
+        ver = QLabel("V3.2.1 Stable")
         ver.setObjectName("navVersion")
         ver.setStyleSheet("font-size: 16px; font-weight: bold; color: " + get_theme(self._theme)['version_color'] + ";")
         header_layout.addWidget(ver)
@@ -3864,7 +3891,7 @@ class MainWindow(QMainWindow):
 
         fl.addStretch()
 
-        brand = QLabel("GLACIER-OS CORE V3.2")
+        brand = QLabel("GLACIER-OS CORE V3.2.1")
         brand.setObjectName("footerBrand")
         fl.addWidget(brand)
 
@@ -4802,6 +4829,18 @@ class MainWindow(QMainWindow):
         header.addWidget(title)
         header.addStretch()
 
+        open_dir_btn = QPushButton("打开历史文件夹")
+        open_dir_btn.setCursor(Qt.PointingHandCursor)
+        _t = get_theme(self._theme)
+        open_dir_btn.setStyleSheet(
+            "QPushButton { background: " + _t['accent_softer'] + "; color: " + _t['accent'] + ";"
+            " border: 1px solid " + _t['accent_border'] + "; border-radius: 6px;"
+            " padding: 6px 16px; font-size: 12px; }"
+            "QPushButton:hover { background: " + _t['accent_soft'] + "; }"
+        )
+        open_dir_btn.clicked.connect(self._open_history_dir)
+        header.addWidget(open_dir_btn)
+
         clear_btn = QPushButton("清空历史")
         clear_btn.setCursor(Qt.PointingHandCursor)
         clear_btn.setStyleSheet("""
@@ -5003,6 +5042,21 @@ class MainWindow(QMainWindow):
             save_history([])
             self._refresh_history_page()
             self.footer_status.setText("历史记录已清空")
+
+    def _open_history_dir(self):
+        ensure_history_dir()
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(HISTORY_DIR)
+            elif sys.platform == "darwin":
+                import subprocess
+                subprocess.Popen(["open", HISTORY_DIR])
+            else:
+                import subprocess
+                subprocess.Popen(["xdg-open", HISTORY_DIR])
+            self.footer_status.setText(f"已打开: {HISTORY_DIR}")
+        except Exception as e:
+            QMessageBox.warning(self, "提示", f"无法打开文件夹：{e}\n路径：{HISTORY_DIR}")
 
 
 if __name__ == "__main__":
