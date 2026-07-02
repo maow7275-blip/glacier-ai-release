@@ -160,7 +160,7 @@ class PlainPasteTextEdit(QTextEdit):
 API_URL = "https://www.hfsyapi.cn/v1/images/generations"
 API_EDIT_URL = "https://www.hfsyapi.cn/v1/images/edits"
 VIDEO_API_URL = "https://www.hfsyapi.cn/v1/video/create"
-GEMINI_API_URL = "https://www.hfsyapi.cn/v1beta/models/gemini-3-pro-image-preview:generateContent"
+GEMINI_API_URL_TEMPLATE = "https://www.hfsyapi.cn/v1beta/models/{model}:generateContent"
 FILE_UPLOAD_URL = "https://www.hfsyapi.cn/v1/files/image-upload"
 BALANCE_URL = "https://www.hfsyapi.cn/api/usage/token/fund"
 
@@ -168,7 +168,10 @@ NO_PROXIES = {"http": None, "https": None}
 
 RATIO_LIST = ["1:1", "5:4", "9:16", "16:9", "4:3", "3:2", "4:5", "3:4", "2:3", "21:9"]
 
-GEMINI_RATIO_LIST = ["1:1", "4:3", "3:4", "16:9", "9:16"]
+GEMINI_RATIO_LIST = [
+    "1:1", "2:1", "1:2", "3:2", "2:3", "4:3", "3:4",
+    "5:4", "4:5", "16:9", "9:16", "21:9", "9:21",
+]
 
 SIZE_MAP = {
     "1:1":  {"1k": "1024x1024", "2k": "2048x2048", "4k": "2880x2880"},
@@ -185,25 +188,35 @@ SIZE_MAP = {
 
 GEMINI_SIZE_MAP = {
     "1:1":  {"1k": "1024x1024", "2k": "2048x2048", "4k": "4096x4096"},
+    "2:1":  {"1k": "1408x704",  "2k": "2816x1408", "4k": "5632x2816"},
+    "1:2":  {"1k": "704x1408",  "2k": "1408x2816", "4k": "2816x5632"},
+    "3:2":  {"1k": "1248x832",  "2k": "2496x1664", "4k": "4992x3328"},
+    "2:3":  {"1k": "832x1248",  "2k": "1664x2496", "4k": "3328x4992"},
     "4:3":  {"1k": "1024x768",  "2k": "2048x1536", "4k": "4096x3072"},
     "3:4":  {"1k": "768x1024",  "2k": "1536x2048", "4k": "3072x4096"},
+    "5:4":  {"1k": "1120x896",  "2k": "2240x1792", "4k": "4480x3584"},
+    "4:5":  {"1k": "896x1120",  "2k": "1792x2240", "4k": "3584x4480"},
     "16:9": {"1k": "1024x576",  "2k": "2048x1152", "4k": "4096x2304"},
     "9:16": {"1k": "576x1024",  "2k": "1152x2048", "4k": "2304x4096"},
+    "21:9": {"1k": "1344x576",  "2k": "2688x1152", "4k": "5376x2304"},
+    "9:21": {"1k": "576x1344",  "2k": "1152x2688", "4k": "2304x5376"},
 }
 
 MODEL_QUALITY = {
     "gpt-image-2": ["1k"],
     "gpt-image-2pro": ["2k", "4k"],
-    "gemini-3-pro-image-preview": ["1k", "2k", "4k"],
+    "nano-banana-2": ["1k", "2k", "4k"],
+    "nano-banana-pro": ["1k", "2k", "4k"],
 }
 
-GEMINI_MODELS = {"gemini-3-pro-image-preview"}
-GEMINI_MAX_REFERENCE_IMAGES = 4
+GEMINI_MODELS = {"nano-banana-2", "nano-banana-pro"}
+GEMINI_MAX_REFERENCE_IMAGES = 7
 
 IMAGE_MODEL_MAX_REFS = {
     "gpt-image-2": 6,
     "gpt-image-2pro": 4,
-    "gemini-3-pro-image-preview": 4,
+    "nano-banana-2": 7,
+    "nano-banana-pro": 7,
 }
 
 QUALITY_TO_API = {"1k": "low", "2k": "medium", "4k": "high"}
@@ -998,7 +1011,7 @@ class KeyDialog(QDialog):
         subtitle.setObjectName("loginSubtitle")
         card_layout.addWidget(subtitle)
 
-        version = QLabel("VERSION 3.2.1")
+        version = QLabel("VERSION 3.2.2")
         version.setObjectName("loginVersion")
         card_layout.addWidget(version)
 
@@ -1372,17 +1385,21 @@ class GenerateThread(QThread):
         payload = {
             "contents": [{"parts": parts}],
             "generationConfig": {
-                "imageConfig": {"aspectRatio": ratio}
+                "imageConfig": {
+                    "aspectRatio": ratio,
+                    "imageSize": self.quality.upper()
+                }
             }
         }
 
-        print(f"[DEBUG] POST {GEMINI_API_URL} (gemini, ratio={ratio}, refs={len(self.image_url) if self.image_url else 0})", flush=True)
+        api_url = GEMINI_API_URL_TEMPLATE.format(model=self.model)
+        print(f"[DEBUG] POST {api_url} (gemini, ratio={ratio}, refs={len(self.image_url) if self.image_url else 0})", flush=True)
 
         import time as _time
         max_retries = 2
         resp = None
         for attempt in range(max_retries + 1):
-            resp = requests.post(GEMINI_API_URL, headers=headers, json=payload, timeout=600, proxies=NO_PROXIES)
+            resp = requests.post(api_url, headers=headers, json=payload, timeout=600, proxies=NO_PROXIES)
             try:
                 with open("debug_output.log", "a", encoding="utf-8") as _f:
                     _f.write(f"[RESP] model={self.model}, status={resp.status_code}, body={resp.text[:500]}\n")
@@ -3091,9 +3108,10 @@ class MainWindow(QMainWindow):
         title = QLabel("GLACIER ENGINE")
         title.setObjectName("navTitle")
         header_layout.addWidget(title)
-        ver = QLabel("V3.2.1 Stable")
+        ver = QLabel("V3.2.2 Stable")
         ver.setObjectName("navVersion")
         ver.setStyleSheet("font-size: 16px; font-weight: bold; color: " + get_theme(self._theme)['version_color'] + ";")
+        self._version_label = ver
         header_layout.addWidget(ver)
         nav_layout.addWidget(header)
 
@@ -3178,6 +3196,7 @@ class MainWindow(QMainWindow):
         key_label = QLabel(f"Key: {key_display}")
         key_label.setObjectName("navKeyLabel")
         key_label.setStyleSheet("color: " + _t['text_muted'] + "; font-size: 11px; background: transparent;")
+        self._key_label = key_label
         bottom_layout.addWidget(key_label)
 
         nav_layout.addWidget(bottom)
@@ -3194,6 +3213,30 @@ class MainWindow(QMainWindow):
                 w.setStyleSheet(f"background-color: {page_bg};")
             except Exception:
                 pass
+        ver_label = getattr(self, "_version_label", None)
+        if ver_label is not None:
+            ver_label.setStyleSheet(
+                "font-size: 16px; font-weight: bold; color: " + theme['version_color'] + ";"
+            )
+        bal_label = getattr(self, "balance_label", None)
+        if bal_label is not None:
+            bal_label.setStyleSheet(
+                f"color: {theme['accent']}; font-size: 16px; font-weight: 700; background: transparent;"
+            )
+        key_label = getattr(self, "_key_label", None)
+        if key_label is not None:
+            key_label.setStyleSheet(
+                "color: " + theme['text_muted'] + "; font-size: 11px; background: transparent;"
+            )
+        refresh_btn = getattr(self, "balance_refresh_btn", None)
+        if refresh_btn is not None:
+            refresh_btn.setStyleSheet(
+                "QPushButton { background: " + theme['accent_softer'] + "; color: " + theme['accent'] + ";"
+                " border: 1px solid " + theme['accent_border'] + "; border-radius: 4px;"
+                " font-size: 16px; padding: 0; }"
+                "QPushButton:hover { background: " + theme['accent_soft'] + "; }"
+                "QPushButton:disabled { color: " + theme['text_dim'] + "; border-color: " + theme['border_soft'] + "; }"
+            )
 
     def _preview_ui_settings(self, font_scale, brightness, theme=None, concurrency=None):
         self._font_scale = font_scale
@@ -3414,7 +3457,7 @@ class MainWindow(QMainWindow):
         grid.addWidget(l1, 0, 0)
         self.model_combo = QComboBox()
         setup_combo(self.model_combo)
-        self.model_combo.addItems(["gpt-image-2", "gpt-image-2pro", "gemini-3-pro-image-preview"])
+        self.model_combo.addItems(["gpt-image-2", "gpt-image-2pro", "nano-banana-2", "nano-banana-pro"])
         self.model_combo.currentTextChanged.connect(self.on_model_changed)
         grid.addWidget(self.model_combo, 1, 0)
 
@@ -3891,7 +3934,7 @@ class MainWindow(QMainWindow):
 
         fl.addStretch()
 
-        brand = QLabel("GLACIER-OS CORE V3.2.1")
+        brand = QLabel("GLACIER-OS CORE V3.2.2")
         brand.setObjectName("footerBrand")
         fl.addWidget(brand)
 
