@@ -269,36 +269,60 @@ def get_or_make_thumb_for_video(video_path):
     if not os.path.exists(video_path):
         return None
     thumb_path = video_path + ".thumb.png"
+    fail_marker = video_path + ".thumb.fail"
     if os.path.exists(thumb_path) and os.path.getmtime(thumb_path) >= os.path.getmtime(video_path):
         return thumb_path
+    # 之前已经抽帧失败过（可能 cv2 在此机器/此视频上有问题），跳过避免再次崩溃
+    if os.path.exists(fail_marker):
+        return None
+    # 提前写失败标记：如果 cv2 native 层 segfault，下次进历史页至少不会再次崩
+    try:
+        with open(fail_marker, "wb") as f:
+            f.write(b"")
+    except Exception:
+        pass
     png_bytes = extract_video_first_frame_bytes(video_path)
     if not png_bytes:
         return None
     try:
         with open(thumb_path, "wb") as f:
             f.write(png_bytes)
+        try:
+            os.remove(fail_marker)
+        except Exception:
+            pass
         return thumb_path
     except Exception:
         return None
 
-VIDEO_MODELS = ["sora-2", "sd-2", "sd-2-vip", "Kling Omni"]
+VIDEO_MODELS = ["sora-2", "sd-2", "sd-2-fast", "sd-2-vip", "sd-2-vip-720", "kling-o3"]
 VIDEO_MODEL_DURATIONS = {
     "sora-2": ["4", "8", "12"],
-    "sd-2": [str(i) for i in range(4, 16)],
-    "sd-2-vip": [str(i) for i in range(4, 16)],
-    "Kling Omni": ["3", "5", "8", "10", "12", "15"],
+    "sd-2": [str(i) for i in range(5, 11)],
+    "sd-2-fast": [str(i) for i in range(5, 11)],
+    "sd-2-vip": [str(i) for i in range(5, 16)],
+    "sd-2-vip-720": [str(i) for i in range(5, 16)],
+    "kling-o3": [str(i) for i in range(5, 16)],
 }
-VIDEO_PROMPT_LIMIT = {"sd-2": 10000, "sd-2-vip": 10000, "Kling Omni": 1500}
+VIDEO_PROMPT_LIMIT = {"sd-2": 5000, "sd-2-fast": 5000, "sd-2-vip": 10000, "sd-2-vip-720": 10000, "kling-o3": 5000}
 VIDEO_MODEL_ORIENTATIONS = {
     "sora-2": {"横屏": "landscape", "竖屏": "portrait"},
     "sd-2": {"横屏": "landscape", "竖屏": "portrait"},
+    "sd-2-fast": {"横屏": "landscape", "竖屏": "portrait"},
     "sd-2-vip": {"横屏": "landscape", "竖屏": "portrait"},
-    "Kling Omni": {"横屏": "landscape", "竖屏": "portrait", "方屏": "square"},
+    "sd-2-vip-720": {"横屏": "landscape", "竖屏": "portrait"},
+    "kling-o3": {"横屏": "landscape", "竖屏": "portrait", "方屏": "square"},
 }
-VIDEO_MODEL_MAX_IMAGES_BASE = {"sora-2": 1, "sd-2": 9, "sd-2-vip": 9, "Kling Omni": 7}
-VIDEO_MODEL_MAX_IMAGES_WITH_VIDEO = {"sora-2": 1, "sd-2": 9, "sd-2-vip": 9, "Kling Omni": 4}
-VIDEO_MODEL_MAX_VIDEOS = {"sora-2": 0, "sd-2": 3, "sd-2-vip": 3, "Kling Omni": 1}
-VIDEO_MODEL_MAX_AUDIOS = {"sora-2": 0, "sd-2": 3, "sd-2-vip": 3, "Kling Omni": 0}
+VIDEO_MODEL_RATIOS = {
+    "sd-2": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
+    "sd-2-fast": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
+    "sd-2-vip": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
+    "sd-2-vip-720": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
+}
+VIDEO_MODEL_MAX_IMAGES_BASE = {"sora-2": 1, "sd-2": 9, "sd-2-fast": 9, "sd-2-vip": 9, "sd-2-vip-720": 9, "kling-o3": 8}
+VIDEO_MODEL_MAX_IMAGES_WITH_VIDEO = {"sora-2": 1, "sd-2": 9, "sd-2-fast": 9, "sd-2-vip": 9, "sd-2-vip-720": 9, "kling-o3": 8}
+VIDEO_MODEL_MAX_VIDEOS = {"sora-2": 0, "sd-2": 3, "sd-2-fast": 3, "sd-2-vip": 3, "sd-2-vip-720": 3, "kling-o3": 0}
+VIDEO_MODEL_MAX_AUDIOS = {"sora-2": 0, "sd-2": 3, "sd-2-fast": 3, "sd-2-vip": 3, "sd-2-vip-720": 3, "kling-o3": 0}
 
 
 # 注意：下拉项的灰色高光改用纯 QSS 实现（见 DARK_STYLE 中
@@ -1011,7 +1035,7 @@ class KeyDialog(QDialog):
         subtitle.setObjectName("loginSubtitle")
         card_layout.addWidget(subtitle)
 
-        version = QLabel("VERSION 3.2.2")
+        version = QLabel("VERSION 3.3")
         version.setObjectName("loginVersion")
         card_layout.addWidget(version)
 
@@ -2123,9 +2147,10 @@ class TaskCard(QFrame):
 
 
 class ClickableLabel(QLabel):
-    def __init__(self, raw_bytes, file_ext="png", is_video=False, parent=None):
+    def __init__(self, raw_bytes, file_ext="png", is_video=False, parent=None, file_path=None, skip_thumb=False):
         super().__init__(parent)
-        self.raw_bytes = raw_bytes
+        self._raw_bytes = raw_bytes
+        self.file_path = file_path
         self.file_ext = file_ext
         self.is_video = is_video
         self.checked = False
@@ -2135,13 +2160,23 @@ class ClickableLabel(QLabel):
         self.setFixedSize(150, 150)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_menu)
-        if is_video:
+        if is_video and not skip_thumb and raw_bytes is not None:
             png_bytes = extract_video_first_frame_bytes(raw_bytes)
             if png_bytes:
                 qimg = QImage.fromData(png_bytes)
                 if not qimg.isNull():
                     pm = QPixmap.fromImage(qimg).scaled(150, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     self.setPixmap(pm)
+
+    @property
+    def raw_bytes(self):
+        if self._raw_bytes is None and self.file_path and os.path.exists(self.file_path):
+            try:
+                with open(self.file_path, "rb") as f:
+                    self._raw_bytes = f.read()
+            except Exception:
+                return b""
+        return self._raw_bytes or b""
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -3108,7 +3143,7 @@ class MainWindow(QMainWindow):
         title = QLabel("GLACIER ENGINE")
         title.setObjectName("navTitle")
         header_layout.addWidget(title)
-        ver = QLabel("V3.2.2 Stable")
+        ver = QLabel("V3.3 Stable")
         ver.setObjectName("navVersion")
         ver.setStyleSheet("font-size: 16px; font-weight: bold; color: " + get_theme(self._theme)['version_color'] + ";")
         self._version_label = ver
@@ -3836,6 +3871,16 @@ class MainWindow(QMainWindow):
         self.vid_size_combo.addItems(["自适应", "large", "small"])
         grid.addWidget(self.vid_size_combo, 5, 0)
 
+        self.vid_ratio_label = QLabel("视频比例")
+        self.vid_ratio_label.setObjectName("paramLabel")
+        grid.addWidget(self.vid_ratio_label, 4, 1)
+        self.vid_ratio_combo = QComboBox()
+        setup_combo(self.vid_ratio_combo)
+        self.vid_ratio_combo.addItems(["自动"])
+        grid.addWidget(self.vid_ratio_combo, 5, 1)
+        self.vid_ratio_label.setVisible(False)
+        self.vid_ratio_combo.setVisible(False)
+
         pm_layout.addLayout(grid)
         pm_layout.addSpacing(8)
 
@@ -3934,7 +3979,7 @@ class MainWindow(QMainWindow):
 
         fl.addStretch()
 
-        brand = QLabel("GLACIER-OS CORE V3.2.2")
+        brand = QLabel("GLACIER-OS CORE V3.3")
         brand.setObjectName("footerBrand")
         fl.addWidget(brand)
 
@@ -4450,32 +4495,48 @@ class MainWindow(QMainWindow):
             self.video_size_combo.setCurrentText(prev_orient)
 
         is_sd = model.startswith("sd-2")
-        is_kling = model == "Kling Omni"
+        is_kling = model == "kling-o3"
 
-        if is_sd:
+        is_sd_new = model in ("sd-2", "sd-2-fast")
+        if is_sd_new:
+            self.vid_video_ref_card.setVisible(True)
+            self.vid_video_ref_title.setText("参考视频（可选）")
+            self.vid_video_ref_hint.setText("提示：最多 3 条，单段 2–10s、≤50MB，总时长 ≤10s，必须公网 URL")
+            self.vid_audio_ref_card.setVisible(True)
+        elif is_sd:
             self.vid_video_ref_card.setVisible(True)
             self.vid_video_ref_title.setText("参考视频（可选）")
             self.vid_video_ref_hint.setText("提示：最多 3 条，分辨率 480p–720p，单段 2–15s、≤50MB，总时长 ≤15s，必须公网 URL")
             self.vid_audio_ref_card.setVisible(True)
-        elif is_kling:
-            self.vid_video_ref_card.setVisible(True)
-            self.vid_video_ref_title.setText("参考视频（可选）")
-            self.vid_video_ref_hint.setText("提示：最多 1 条公网 URL；选了视频后图片上限降为 4 张")
-            self.vid_audio_ref_card.setVisible(False)
         else:
             self.vid_video_ref_card.setVisible(False)
             self.vid_audio_ref_card.setVisible(False)
 
         self.vid_size_label.setVisible(is_sd or is_kling)
         self.vid_size_combo.setVisible(is_sd or is_kling)
-        self.vid_keyframe_card.setVisible(is_kling)
+        self.vid_keyframe_card.setVisible(False)
+
+        ratios = VIDEO_MODEL_RATIOS.get(model)
+        if ratios:
+            prev_ratio = self.vid_ratio_combo.currentText()
+            self.vid_ratio_combo.clear()
+            self.vid_ratio_combo.addItems(["自动"] + ratios)
+            if prev_ratio in ratios:
+                self.vid_ratio_combo.setCurrentText(prev_ratio)
+            self.vid_ratio_label.setVisible(True)
+            self.vid_ratio_combo.setVisible(True)
+        else:
+            self.vid_ratio_label.setVisible(False)
+            self.vid_ratio_combo.setVisible(False)
 
         if model == "sora-2":
             self.vid_img_ref_hint.setText("提示：sora-2 仅支持 1 张参考图片")
+        elif is_sd_new:
+            self.vid_img_ref_hint.setText("提示：最多 9 张，单图 ≤30MB，总和 ≤270MB；prompt 中可用 @1 @2... 引用")
         elif is_sd:
             self.vid_img_ref_hint.setText("提示：最多 9 张，单图 ≤30MB，所有素材总 ≤64MB；prompt 中可用 @1 @2... 引用")
         elif is_kling:
-            self.vid_img_ref_hint.setText("提示：最多 7 张（带视频时降为 4 张）")
+            self.vid_img_ref_hint.setText("提示：最多 8 张参考图片，不支持视频/音频")
 
         max_imgs = self._current_max_images()
         max_vids = self._current_max_videos()
@@ -4606,15 +4667,18 @@ class MainWindow(QMainWindow):
         vid_img_urls = [s["url"] for s in self._vid_img_ref_data_list if s.get("url")]
         vid_video_urls = list(self._vid_video_ref_url_list)
         vid_audio_urls = list(self._vid_audio_ref_url_list)
-        is_kling = model == "Kling Omni"
+        is_kling = model == "kling-o3"
         size_choice = self.vid_size_combo.currentText() if (model.startswith("sd-2") or is_kling) else ""
         sd_size = size_choice if size_choice in ("large", "small") else None
 
-        start_url = self._vid_start_frame.get("url") if is_kling else None
-        end_url = self._vid_end_frame.get("url") if is_kling else None
-        if is_kling and bool(start_url) != bool(end_url):
-            QMessageBox.warning(self, "提示", "首尾帧模式需要同时上传首帧和尾帧")
-            return
+        sd_ratio = None
+        if VIDEO_MODEL_RATIOS.get(model):
+            ratio_choice = self.vid_ratio_combo.currentText()
+            if ratio_choice and ratio_choice != "自动":
+                sd_ratio = ratio_choice
+
+        start_url = None
+        end_url = None
 
         duration = self.video_duration_combo.currentText()
         params = {
@@ -4627,13 +4691,19 @@ class MainWindow(QMainWindow):
             "video_refs": vid_video_urls if vid_video_urls else None,
             "audio_refs": vid_audio_urls if vid_audio_urls else None,
             "sd_size": sd_size,
+            "sd_ratio": sd_ratio,
             "start_image_url": start_url,
             "end_image_url": end_url,
             "orientation_label": size_label,
         }
+        meta_parts = []
+        if model.startswith("sd-2") or is_kling:
+            meta_parts.append(sd_size or "自适应")
+        if sd_ratio:
+            meta_parts.append(sd_ratio)
         summary = {
             "label": f"{model} · {count}个 · {size_label} · {duration}s",
-            "meta": (f"{sd_size or '自适应'}" if (model.startswith('sd-2') or is_kling) else ""),
+            "meta": " · ".join(meta_parts),
             "prompt": prompt,
             "count": count,
         }
@@ -4659,6 +4729,7 @@ class MainWindow(QMainWindow):
                 image_url=p.get("image_url"), model=p["model"],
                 video_refs=p.get("video_refs"), audio_refs=p.get("audio_refs"),
                 sd_size=p.get("sd_size"),
+                sd_ratio=p.get("sd_ratio"),
                 start_image_url=p.get("start_image_url"),
                 end_image_url=p.get("end_image_url"),
             )
@@ -4957,10 +5028,14 @@ class MainWindow(QMainWindow):
                     continue
                 ext = os.path.splitext(img_file)[1].lstrip(".").lower()
                 if is_video_record or ext == "mp4":
-                    raw_bytes = open(img_path, "rb").read()
-                    lbl = ClickableLabel(raw_bytes, file_ext="mp4", is_video=True)
-                    thumb_path = get_or_make_thumb_for_video(img_path)
-                    thumb_pixmap = QPixmap(thumb_path) if thumb_path else QPixmap()
+                    lbl = ClickableLabel(None, file_ext="mp4", is_video=True, file_path=img_path, skip_thumb=True)
+                    thumb_pixmap = QPixmap()
+                    try:
+                        thumb_path = get_or_make_thumb_for_video(img_path)
+                        if thumb_path:
+                            thumb_pixmap = QPixmap(thumb_path)
+                    except Exception as e:
+                        print(f"[DEBUG] history thumb failed: {e}", flush=True)
                     if not thumb_pixmap.isNull():
                         scaled = thumb_pixmap.scaled(80, 80, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
                         x = max(0, (scaled.width() - 80) // 2)
@@ -4983,8 +5058,7 @@ class MainWindow(QMainWindow):
                 else:
                     pixmap = QPixmap(img_path)
                     if not pixmap.isNull():
-                        raw_bytes = open(img_path, "rb").read()
-                        lbl = ClickableLabel(raw_bytes, file_ext=ext)
+                        lbl = ClickableLabel(None, file_ext=ext, file_path=img_path)
                         scaled = pixmap.scaled(80, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                         lbl.setPixmap(scaled)
                         lbl.setFixedSize(80, 80)

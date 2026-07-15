@@ -65,11 +65,11 @@ app = BUNDLE(
     name='GlacierAI.app',
     icon='logo.icns',
     bundle_identifier='com.glacier.ai.tool',
-    version='3.2.2',
+    version='3.3.0',
     info_plist={
         'NSHighResolutionCapable': 'True',
-        'CFBundleShortVersionString': '3.2.2',
-        'CFBundleVersion': '3.2.2',
+        'CFBundleShortVersionString': '3.3.0',
+        'CFBundleVersion': '3.3.0',
         'NSPrincipalClass': 'NSApplication',
     },
 )
