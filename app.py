@@ -295,34 +295,152 @@ def get_or_make_thumb_for_video(video_path):
     except Exception:
         return None
 
-VIDEO_MODELS = ["sora-2", "sd-2", "sd-2-fast", "sd-2-vip", "sd-2-vip-720", "kling-o3"]
+VIDEO_MODELS = ["sora-2", "sd-2.0", "sd-2.0-480", "sd-2.0-fast", "sd-2.0-fast-480", "kling-o3"]
+# 默认隐藏的老模型，通过下拉框末尾"更多..."展开
+VIDEO_MODELS_HIDDEN = ["sd-2", "sd-2-fast", "sd-2-vip", "sd-2-vip-720"]
 VIDEO_MODEL_DURATIONS = {
     "sora-2": ["4", "8", "12"],
+    "sd-2.0": [str(i) for i in range(4, 16)],
+    "sd-2.0-480": [str(i) for i in range(4, 16)],
+    "sd-2.0-fast": [str(i) for i in range(4, 16)],
+    "sd-2.0-fast-480": [str(i) for i in range(4, 16)],
+    "kling-o3": [str(i) for i in range(5, 16)],
     "sd-2": [str(i) for i in range(5, 11)],
     "sd-2-fast": [str(i) for i in range(5, 11)],
     "sd-2-vip": [str(i) for i in range(5, 16)],
     "sd-2-vip-720": [str(i) for i in range(5, 16)],
-    "kling-o3": [str(i) for i in range(5, 16)],
 }
-VIDEO_PROMPT_LIMIT = {"sd-2": 5000, "sd-2-fast": 5000, "sd-2-vip": 10000, "sd-2-vip-720": 10000, "kling-o3": 5000}
+VIDEO_PROMPT_LIMIT = {"sd-2.0": 5000, "sd-2.0-480": 5000, "sd-2.0-fast": 5000, "sd-2.0-fast-480": 5000, "kling-o3": 5000,
+                      "sd-2": 5000, "sd-2-fast": 5000, "sd-2-vip": 10000, "sd-2-vip-720": 10000}
 VIDEO_MODEL_ORIENTATIONS = {
     "sora-2": {"横屏": "landscape", "竖屏": "portrait"},
+    "sd-2.0": {"横屏": "landscape", "竖屏": "portrait"},
+    "sd-2.0-480": {"横屏": "landscape", "竖屏": "portrait"},
+    "sd-2.0-fast": {"横屏": "landscape", "竖屏": "portrait"},
+    "sd-2.0-fast-480": {"横屏": "landscape", "竖屏": "portrait"},
+    "kling-o3": {"横屏": "landscape", "竖屏": "portrait", "方屏": "square"},
     "sd-2": {"横屏": "landscape", "竖屏": "portrait"},
     "sd-2-fast": {"横屏": "landscape", "竖屏": "portrait"},
     "sd-2-vip": {"横屏": "landscape", "竖屏": "portrait"},
     "sd-2-vip-720": {"横屏": "landscape", "竖屏": "portrait"},
-    "kling-o3": {"横屏": "landscape", "竖屏": "portrait", "方屏": "square"},
 }
 VIDEO_MODEL_RATIOS = {
+    "sd-2.0": ["16:9", "9:16", "1:1"],
+    "sd-2.0-480": ["16:9", "9:16", "1:1"],
+    "sd-2.0-fast": ["16:9", "9:16", "1:1"],
+    "sd-2.0-fast-480": ["16:9", "9:16", "1:1"],
     "sd-2": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
     "sd-2-fast": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
     "sd-2-vip": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
     "sd-2-vip-720": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
 }
-VIDEO_MODEL_MAX_IMAGES_BASE = {"sora-2": 1, "sd-2": 9, "sd-2-fast": 9, "sd-2-vip": 9, "sd-2-vip-720": 9, "kling-o3": 8}
-VIDEO_MODEL_MAX_IMAGES_WITH_VIDEO = {"sora-2": 1, "sd-2": 9, "sd-2-fast": 9, "sd-2-vip": 9, "sd-2-vip-720": 9, "kling-o3": 8}
-VIDEO_MODEL_MAX_VIDEOS = {"sora-2": 0, "sd-2": 3, "sd-2-fast": 3, "sd-2-vip": 3, "sd-2-vip-720": 3, "kling-o3": 0}
-VIDEO_MODEL_MAX_AUDIOS = {"sora-2": 0, "sd-2": 3, "sd-2-fast": 3, "sd-2-vip": 3, "sd-2-vip-720": 3, "kling-o3": 0}
+VIDEO_MODEL_MAX_IMAGES_BASE = {"sora-2": 1, "sd-2.0": 4, "sd-2.0-480": 4, "sd-2.0-fast": 4, "sd-2.0-fast-480": 4,
+                                "kling-o3": 8, "sd-2": 9, "sd-2-fast": 9, "sd-2-vip": 9, "sd-2-vip-720": 9}
+VIDEO_MODEL_MAX_IMAGES_WITH_VIDEO = {"sora-2": 1, "sd-2.0": 4, "sd-2.0-480": 4, "sd-2.0-fast": 4, "sd-2.0-fast-480": 4,
+                                      "kling-o3": 8, "sd-2": 9, "sd-2-fast": 9, "sd-2-vip": 9, "sd-2-vip-720": 9}
+VIDEO_MODEL_MAX_VIDEOS = {"sora-2": 0, "sd-2.0": 3, "sd-2.0-480": 3, "sd-2.0-fast": 3, "sd-2.0-fast-480": 3,
+                          "kling-o3": 0, "sd-2": 3, "sd-2-fast": 3, "sd-2-vip": 3, "sd-2-vip-720": 3}
+VIDEO_MODEL_MAX_AUDIOS = {"sora-2": 0, "sd-2.0": 1, "sd-2.0-480": 1, "sd-2.0-fast": 1, "sd-2.0-fast-480": 1,
+                          "kling-o3": 0, "sd-2": 3, "sd-2-fast": 3, "sd-2-vip": 3, "sd-2-vip-720": 3}
+
+
+# 自定义 ComboBox，支持悬停"更多..."时弹出子菜单
+class VideoModelComboBox(QComboBox):
+    def __init__(self, parent=None, hidden_models=None, main_window=None):
+        super().__init__(parent)
+        self.hidden_models = hidden_models or []
+        self.main_window = main_window
+        self._submenu = None
+        self._submenu_timer = None
+        # 监听下拉列表的鼠标移动
+        self.view().viewport().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if obj == self.view().viewport():
+            if event.type() == QEvent.MouseMove:
+                index = self.view().indexAt(event.pos())
+                if index.isValid():
+                    text = self.itemText(index.row())
+                    if text == "更多...":
+                        # 鼠标悬停在"更多..."上，延迟弹出子菜单
+                        if not self._submenu_timer:
+                            self._submenu_timer = QTimer()
+                            self._submenu_timer.setSingleShot(True)
+                            self._submenu_timer.timeout.connect(lambda: self._show_submenu(event.globalPos()))
+                            self._submenu_timer.start(200)  # 200ms 延迟
+                    else:
+                        # 鼠标离开"更多..."，取消计时器并关闭子菜单
+                        if self._submenu_timer:
+                            self._submenu_timer.stop()
+                            self._submenu_timer = None
+                        if self._submenu and not self._submenu.geometry().contains(event.globalPos()):
+                            self._submenu.close()
+                            self._submenu = None
+            elif event.type() == QEvent.Leave:
+                # 鼠标离开下拉列表
+                if self._submenu_timer:
+                    self._submenu_timer.stop()
+                    self._submenu_timer = None
+        return super().eventFilter(obj, event)
+
+    def _show_submenu(self, global_pos):
+        if self._submenu:
+            self._submenu.close()
+
+        from PyQt5.QtWidgets import QMenu
+        self._submenu = QMenu(self)
+
+        # 根据当前主题动态设置样式
+        if self.main_window:
+            theme = get_theme(self.main_window._theme)
+            style = f"""
+                QMenu {{
+                    background-color: {theme['bg_combo_pop']};
+                    border: 1px solid {theme['border_soft']};
+                    color: {theme['text_primary']};
+                    padding: 4px;
+                }}
+                QMenu::item {{
+                    padding: 6px 20px;
+                }}
+                QMenu::item:selected {{
+                    background-color: {theme['bg_combo_pop_item_sel']};
+                }}
+            """
+            self._submenu.setStyleSheet(style)
+        else:
+            # 降级方案：使用暗蓝主题
+            self._submenu.setStyleSheet("""
+                QMenu { background-color: #000000; border: 1px solid rgba(125,211,252,0.1); color: #e0e8f0; padding: 4px; }
+                QMenu::item { padding: 6px 20px; }
+                QMenu::item:selected { background-color: #4a4a4a; }
+            """)
+
+        for model in self.hidden_models:
+            action = self._submenu.addAction(model)
+            action.triggered.connect(lambda checked, m=model: self._select_hidden_model(m))
+
+        # 用弹出框的 frameGeometry 右边缘定位，无缝衔接、不交叠
+        popup_widget = self.view().window()
+        popup_right = popup_widget.frameGeometry().right()
+        item_rect = self.view().visualRect(self.view().model().index(self.count() - 1, 0))
+        item_top_y = self.view().mapToGlobal(item_rect.topLeft()).y()
+        self._submenu.popup(QPoint(popup_right, item_top_y))
+
+    def _select_hidden_model(self, model):
+        # 关闭下拉和子菜单
+        self.hidePopup()
+        if self._submenu:
+            self._submenu.close()
+            self._submenu = None
+
+        # 将选中的隐藏模型插入到"更多..."前面
+        idx = self.findText("更多...")
+        if idx >= 0:
+            # 检查是否已经存在，避免重复插入
+            if self.findText(model) < 0:
+                self.insertItem(idx, model)
+            self.setCurrentText(model)
 
 
 # 注意：下拉项的灰色高光改用纯 QSS 实现（见 DARK_STYLE 中
@@ -1035,7 +1153,7 @@ class KeyDialog(QDialog):
         subtitle.setObjectName("loginSubtitle")
         card_layout.addWidget(subtitle)
 
-        version = QLabel("VERSION 3.3")
+        version = QLabel("VERSION 3.4")
         version.setObjectName("loginVersion")
         card_layout.addWidget(version)
 
@@ -1614,7 +1732,7 @@ class VideoGenerateThread(QThread):
         self.progress.emit(f"第{index+1}个视频: 任务已提交，等待生成...")
         query_url = f"https://www.hfsyapi.cn/v1/video/query?id={task_id}"
 
-        for i in range(120):
+        for i in range(360):
             time.sleep(5)
             try:
                 poll_resp = requests.get(query_url, headers=headers, timeout=30, proxies=NO_PROXIES)
@@ -3143,7 +3261,7 @@ class MainWindow(QMainWindow):
         title = QLabel("GLACIER ENGINE")
         title.setObjectName("navTitle")
         header_layout.addWidget(title)
-        ver = QLabel("V3.3 Stable")
+        ver = QLabel("V3.4 Stable")
         ver.setObjectName("navVersion")
         ver.setStyleSheet("font-size: 16px; font-weight: bold; color: " + get_theme(self._theme)['version_color'] + ";")
         self._version_label = ver
@@ -3833,9 +3951,9 @@ class MainWindow(QMainWindow):
         l1 = QLabel("模型")
         l1.setObjectName("paramLabel")
         grid.addWidget(l1, 0, 0)
-        self.video_model_combo = QComboBox()
+        self.video_model_combo = VideoModelComboBox(hidden_models=VIDEO_MODELS_HIDDEN, main_window=self)
         setup_combo(self.video_model_combo)
-        self.video_model_combo.addItems(VIDEO_MODELS)
+        self.video_model_combo.addItems(VIDEO_MODELS + ["更多..."])
         self.video_model_combo.currentTextChanged.connect(self.on_video_model_changed)
         grid.addWidget(self.video_model_combo, 1, 0)
 
@@ -3979,7 +4097,7 @@ class MainWindow(QMainWindow):
 
         fl.addStretch()
 
-        brand = QLabel("GLACIER-OS CORE V3.3")
+        brand = QLabel("GLACIER-OS CORE V3.4")
         brand.setObjectName("footerBrand")
         fl.addWidget(brand)
 
@@ -4480,6 +4598,10 @@ class MainWindow(QMainWindow):
         thumb.setPixmap(QPixmap())
 
     def on_video_model_changed(self, model):
+        # "更多..."不是真实模型，忽略（由 VideoModelComboBox 自己处理）
+        if model == "更多...":
+            return
+
         prev_dur = self.video_duration_combo.currentText()
         self.video_duration_combo.clear()
         durations = VIDEO_MODEL_DURATIONS.get(model, VIDEO_DURATIONS)
@@ -4497,11 +4619,11 @@ class MainWindow(QMainWindow):
         is_sd = model.startswith("sd-2")
         is_kling = model == "kling-o3"
 
-        is_sd_new = model in ("sd-2", "sd-2-fast")
+        is_sd_new = model in ("sd-2.0", "sd-2.0-480", "sd-2.0-fast", "sd-2.0-fast-480")
         if is_sd_new:
             self.vid_video_ref_card.setVisible(True)
             self.vid_video_ref_title.setText("参考视频（可选）")
-            self.vid_video_ref_hint.setText("提示：最多 3 条，单段 2–10s、≤50MB，总时长 ≤10s，必须公网 URL")
+            self.vid_video_ref_hint.setText("提示：最多 3 条，分辨率 720p–2160p，总大小 ≤200MB，总时长 ≤15s，必须公网 URL")
             self.vid_audio_ref_card.setVisible(True)
         elif is_sd:
             self.vid_video_ref_card.setVisible(True)
@@ -4532,7 +4654,7 @@ class MainWindow(QMainWindow):
         if model == "sora-2":
             self.vid_img_ref_hint.setText("提示：sora-2 仅支持 1 张参考图片")
         elif is_sd_new:
-            self.vid_img_ref_hint.setText("提示：最多 9 张，单图 ≤30MB，总和 ≤270MB；prompt 中可用 @1 @2... 引用")
+            self.vid_img_ref_hint.setText("提示：最多 4 张，单图 ≤30MB；prompt 中可用 @1 @2... 引用")
         elif is_sd:
             self.vid_img_ref_hint.setText("提示：最多 9 张，单图 ≤30MB，所有素材总 ≤64MB；prompt 中可用 @1 @2... 引用")
         elif is_kling:
