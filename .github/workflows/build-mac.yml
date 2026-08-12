@@ -14,9 +14,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-13
-            arch: intel
-            arch_label: Intel
           - runner: macos-14
             arch: arm64
             arch_label: Apple Silicon
@@ -99,10 +96,25 @@ jobs:
             dist/*.dmg
             dist/*.zip
 
+      - name: Resolve release notes
+        id: notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # 文件名历史上大小写不一致（CHANGELOG_v3.6.md / CHANGELOG_V3.5.md），两种都试
+          for f in "CHANGELOG_v${VERSION}.md" "CHANGELOG_V${VERSION}.md"; do
+            if [ -f "$f" ]; then
+              echo "path=$f" >> "$GITHUB_OUTPUT"
+              echo "使用更新说明: $f"
+              break
+            fi
+          done
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.dmg
             dist/*.zip
-          generate_release_notes: true
+          # 找到对应 CHANGELOG 就用它，否则回退到按 commit 自动生成
+          body_path: ${{ steps.notes.outputs.path }}
+          generate_release_notes: ${{ steps.notes.outputs.path == '' }}

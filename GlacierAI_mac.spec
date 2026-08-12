@@ -4,9 +4,13 @@ import os
 import sys
 
 _spec_dir = os.path.dirname(os.path.abspath(SPEC))
+# 项目根目录和 dist/ 都要查：分发时常整个打包 dist 文件夹，密钥会跟着发出去
+_scan_dirs = (_spec_dir, os.path.join(_spec_dir, 'dist'))
 _leaked_files = [
-    fname for fname in ("api_key.dat",)
-    if os.path.exists(os.path.join(_spec_dir, fname))
+    os.path.relpath(os.path.join(d, fname), _spec_dir)
+    for d in _scan_dirs
+    for fname in ('api_key.dat',)
+    if os.path.exists(os.path.join(d, fname))
 ]
 if _leaked_files:
     sys.stderr.write(
@@ -65,11 +69,11 @@ app = BUNDLE(
     name='GlacierAI.app',
     icon='logo.icns',
     bundle_identifier='com.glacier.ai.tool',
-    version='3.3.0',
+    version='3.6.0',
     info_plist={
         'NSHighResolutionCapable': 'True',
-        'CFBundleShortVersionString': '3.3.0',
-        'CFBundleVersion': '3.3.0',
+        'CFBundleShortVersionString': '3.6.0',
+        'CFBundleVersion': '3.6.0',
         'NSPrincipalClass': 'NSApplication',
     },
 )
