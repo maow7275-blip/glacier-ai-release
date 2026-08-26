@@ -3,6 +3,9 @@ import os
 import json
 import base64
 import math
+import hashlib
+import subprocess
+import tempfile
 from string import Template
 import requests
 from datetime import datetime
@@ -17,6 +20,10 @@ from PyQt5.QtWidgets import (
 import re
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize, QPoint, QRect, QTimer, QMimeData, QEvent, QObject
 from PyQt5.QtGui import QPixmap, QImage, QFont, QColor, QIcon, QPainter, QLinearGradient, QBrush, QPen, QPainterPath
+
+
+APP_VERSION = "3.8.0"
+UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/maow7275-blip/glacier-ai-tool/main/update.json"
 
 
 class MentionPopup(QListWidget):
@@ -157,6 +164,53 @@ class PlainPasteTextEdit(QTextEdit):
             self._refresh_mention_popup()
 
 
+def _version_key(version):
+    """Turn a semantic version string into a comparable tuple."""
+    parts = re.findall(r"\d+", str(version))
+    return tuple(int(part) for part in (parts[:3] + ["0"] * 3)[:3])
+
+
+class UpdateDownloadThread(QThread):
+    progress = pyqtSignal(int)
+    completed = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, url, expected_sha256, version, parent=None):
+        super().__init__(parent)
+        self.url = url
+        self.expected_sha256 = expected_sha256.lower()
+        self.version = version
+
+    def run(self):
+        try:
+            response = requests.get(self.url, stream=True, timeout=(10, 120), proxies=NO_PROXIES)
+            response.raise_for_status()
+            total = int(response.headers.get("content-length", 0))
+            temp_dir = tempfile.mkdtemp(prefix="GlacierAI-update-")
+            download_path = os.path.join(temp_dir, f"GlacierAI_V{self.version}.exe")
+            digest = hashlib.sha256()
+            downloaded = 0
+            with open(download_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    if not chunk:
+                        continue
+                    f.write(chunk)
+                    digest.update(chunk)
+                    downloaded += len(chunk)
+                    if total:
+                        self.progress.emit(min(100, int(downloaded * 100 / total)))
+            if digest.hexdigest().lower() != self.expected_sha256:
+                try:
+                    os.remove(download_path)
+                except OSError:
+                    pass
+                raise RuntimeError("下载文件的 SHA-256 校验失败，更新已取消。")
+            self.progress.emit(100)
+            self.completed.emit(download_path)
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
 API_URL = "https://www.hfsyapi.cn/v1/images/generations"
 API_EDIT_URL = "https://www.hfsyapi.cn/v1/images/edits"
 VIDEO_API_URL = "https://www.hfsyapi.cn/v1/video/create"
@@ -295,15 +349,14 @@ def get_or_make_thumb_for_video(video_path):
     except Exception:
         return None
 
-VIDEO_MODELS = ["sora-2", "sd-2 ▸", "sd-2.0 ▸", "sd-2.5 ▸", "kling-o3", "minimax-h3", "grok-imagine-video-1.5"]
+VIDEO_MODELS = ["sd-2 ▸", "sd-2.5 ▸", "grok-imagine-video-1.5", "minimax-h3"]
 # SD系列模型分组
 VIDEO_MODEL_GROUPS = {
-    "sd-2 ▸": ["sd-2", "sd-2-fast", "sd-2-vip", "sd-2-vip-720"],
-    "sd-2.0 ▸": ["sd-2.0", "sd-2.0-mini", "sd-2.0-480", "sd-2.0-fast", "sd-2.0-fast-480"],
+    "sd-2 ▸": ["sd-2", "sd-2-fast", "sd-2-vip", "sd-2-vip-720", "sd-2-mini-480", "sd-2-mini-720"],
     "sd-2.5 ▸": ["sd-2.5-480", "sd-2.5-720"],
 }
 # 默认隐藏的老模型，通过下拉框末尾"更多..."展开
-VIDEO_MODELS_HIDDEN = []
+VIDEO_MODELS_HIDDEN = ["sora-2", "sd-2.0 ▸", "kling-o3"]
 VIDEO_MODEL_DURATIONS = {
     "sora-2": ["4", "8", "12"],
     "sd-2.0": [str(i) for i in range(4, 16)],
@@ -320,9 +373,11 @@ VIDEO_MODEL_DURATIONS = {
     "sd-2-fast": [str(i) for i in range(5, 11)],
     "sd-2-vip": [str(i) for i in range(5, 16)],
     "sd-2-vip-720": [str(i) for i in range(5, 16)],
+    "sd-2-mini-480": [str(i) for i in range(5, 16)],
+    "sd-2-mini-720": [str(i) for i in range(5, 16)],
 }
 VIDEO_PROMPT_LIMIT = {"sd-2.0": 5000, "sd-2.0-mini": 5000, "sd-2.0-480": 5000, "sd-2.0-fast": 5000, "sd-2.0-fast-480": 5000, "kling-o3": 5000,
-                      "minimax-h3": 5000, "sd-2": 5000, "sd-2-fast": 5000, "sd-2-vip": 10000, "sd-2-vip-720": 10000, "sd-2.5-480": 5000, "sd-2.5-720": 5000, "grok-imagine-video-1.5": 4000}
+                      "minimax-h3": 5000, "sd-2": 5000, "sd-2-fast": 5000, "sd-2-vip": 15000, "sd-2-vip-720": 15000, "sd-2-mini-480": 15000, "sd-2-mini-720": 15000, "sd-2.5-480": 5000, "sd-2.5-720": 5000, "grok-imagine-video-1.5": 4000}
 VIDEO_MODEL_ORIENTATIONS = {
     "sora-2": {"横屏": "landscape", "竖屏": "portrait"},
     "sd-2.0": {"横屏": "landscape", "竖屏": "portrait"},
@@ -339,6 +394,8 @@ VIDEO_MODEL_ORIENTATIONS = {
     "sd-2-fast": {"横屏": "landscape", "竖屏": "portrait"},
     "sd-2-vip": {"横屏": "landscape", "竖屏": "portrait"},
     "sd-2-vip-720": {"横屏": "landscape", "竖屏": "portrait"},
+    "sd-2-mini-480": {"横屏": "landscape", "竖屏": "portrait"},
+    "sd-2-mini-720": {"横屏": "landscape", "竖屏": "portrait"},
 }
 VIDEO_MODEL_RATIOS = {
     "sd-2.0": ["16:9", "9:16", "1:1"],
@@ -354,15 +411,17 @@ VIDEO_MODEL_RATIOS = {
     "sd-2-fast": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
     "sd-2-vip": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
     "sd-2-vip-720": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
+    "sd-2-mini-480": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
+    "sd-2-mini-720": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
 }
 VIDEO_MODEL_MAX_IMAGES_BASE = {"sora-2": 1, "sd-2.0": 4, "sd-2.0-mini": 4, "sd-2.0-480": 4, "sd-2.0-fast": 4, "sd-2.0-fast-480": 4,
-                                "sd-2.5-480": 30, "sd-2.5-720": 30, "kling-o3": 8, "minimax-h3": 5, "grok-imagine-video-1.5": 7, "sd-2": 9, "sd-2-fast": 9, "sd-2-vip": 9, "sd-2-vip-720": 9}
+                                "sd-2.5-480": 30, "sd-2.5-720": 30, "kling-o3": 8, "minimax-h3": 5, "grok-imagine-video-1.5": 7, "sd-2": 9, "sd-2-fast": 9, "sd-2-vip": 9, "sd-2-vip-720": 9, "sd-2-mini-480": 9, "sd-2-mini-720": 9}
 VIDEO_MODEL_MAX_IMAGES_WITH_VIDEO = {"sora-2": 1, "sd-2.0": 4, "sd-2.0-mini": 4, "sd-2.0-480": 4, "sd-2.0-fast": 4, "sd-2.0-fast-480": 4,
-                                      "sd-2.5-480": 30, "sd-2.5-720": 30, "kling-o3": 8, "minimax-h3": 5, "grok-imagine-video-1.5": 7, "sd-2": 9, "sd-2-fast": 9, "sd-2-vip": 9, "sd-2-vip-720": 9}
+                                      "sd-2.5-480": 30, "sd-2.5-720": 30, "kling-o3": 8, "minimax-h3": 5, "grok-imagine-video-1.5": 7, "sd-2": 9, "sd-2-fast": 9, "sd-2-vip": 9, "sd-2-vip-720": 9, "sd-2-mini-480": 9, "sd-2-mini-720": 9}
 VIDEO_MODEL_MAX_VIDEOS = {"sora-2": 0, "sd-2.0": 3, "sd-2.0-mini": 3, "sd-2.0-480": 3, "sd-2.0-fast": 3, "sd-2.0-fast-480": 3,
-                          "sd-2.5-480": 10, "sd-2.5-720": 10, "kling-o3": 0, "minimax-h3": 0, "grok-imagine-video-1.5": 0, "sd-2": 3, "sd-2-fast": 3, "sd-2-vip": 3, "sd-2-vip-720": 3}
+                          "sd-2.5-480": 10, "sd-2.5-720": 10, "kling-o3": 0, "minimax-h3": 0, "grok-imagine-video-1.5": 0, "sd-2": 3, "sd-2-fast": 3, "sd-2-vip": 3, "sd-2-vip-720": 3, "sd-2-mini-480": 3, "sd-2-mini-720": 3}
 VIDEO_MODEL_MAX_AUDIOS = {"sora-2": 0, "sd-2.0": 1, "sd-2.0-mini": 1, "sd-2.0-480": 1, "sd-2.0-fast": 1, "sd-2.0-fast-480": 1,
-                          "sd-2.5-480": 10, "sd-2.5-720": 10, "kling-o3": 0, "minimax-h3": 1, "grok-imagine-video-1.5": 0, "sd-2": 3, "sd-2-fast": 3, "sd-2-vip": 3, "sd-2-vip-720": 3}
+                          "sd-2.5-480": 10, "sd-2.5-720": 10, "kling-o3": 0, "minimax-h3": 1, "grok-imagine-video-1.5": 0, "sd-2": 3, "sd-2-fast": 3, "sd-2-vip": 3, "sd-2-vip-720": 3, "sd-2-mini-480": 3, "sd-2-mini-720": 3}
 
 
 # 自定义 ComboBox，支持点击分组项时弹出子菜单
@@ -1192,7 +1251,7 @@ class KeyDialog(QDialog):
         subtitle.setObjectName("loginSubtitle")
         card_layout.addWidget(subtitle)
 
-        version = QLabel("VERSION 3.6")
+        version = QLabel("VERSION 3.8")
         version.setObjectName("loginVersion")
         card_layout.addWidget(version)
 
@@ -1466,7 +1525,7 @@ class GenerateThread(QThread):
                 self.progress.emit(f"第{index+1}张被限流，{wait}秒后重试...")
                 _time.sleep(wait)
                 continue
-            if resp.status_code in (500, 502, 503) and attempt < max_retries:
+            if resp.status_code in (500, 502, 503, 504) and attempt < max_retries:
                 wait = (attempt + 1) * 3
                 print(f"[DEBUG] Retry {attempt+1}/{max_retries} after {wait}s...", flush=True)
                 self.progress.emit(f"第{index+1}张遇到服务器错误，{wait}秒后重试...")
@@ -1598,7 +1657,7 @@ class GenerateThread(QThread):
                 self.progress.emit(f"第{index+1}张被限流，{wait}秒后重试...")
                 _time.sleep(wait)
                 continue
-            if resp.status_code in (500, 502, 503) and attempt < max_retries:
+            if resp.status_code in (500, 502, 503, 504) and attempt < max_retries:
                 wait = (attempt + 1) * 3
                 self.progress.emit(f"第{index+1}张遇到服务器错误，{wait}秒后重试...")
                 _time.sleep(wait)
@@ -1749,7 +1808,7 @@ class VideoGenerateThread(QThread):
                 self.progress.emit(f"第{index+1}个视频被限流，{wait}秒后重试...")
                 time.sleep(wait)
                 continue
-            if resp.status_code in (500, 502, 503) and attempt < 2:
+            if resp.status_code in (500, 502, 503, 504) and attempt < 2:
                 wait = (attempt + 1) * 3
                 self.progress.emit(f"第{index+1}个视频遇到服务器错误，{wait}秒后重试...")
                 time.sleep(wait)
@@ -3300,7 +3359,7 @@ class MainWindow(QMainWindow):
         title = QLabel("GLACIER ENGINE")
         title.setObjectName("navTitle")
         header_layout.addWidget(title)
-        ver = QLabel("V3.6 Stable")
+        ver = QLabel(f"V{APP_VERSION} Stable")
         ver.setObjectName("navVersion")
         ver.setStyleSheet("font-size: 16px; font-weight: bold; color: " + get_theme(self._theme)['version_color'] + ";")
         self._version_label = ver
@@ -3334,6 +3393,12 @@ class MainWindow(QMainWindow):
         self.nav_settings_btn.setCursor(Qt.PointingHandCursor)
         self.nav_settings_btn.clicked.connect(self._open_settings)
         nav_layout.addWidget(self.nav_settings_btn)
+
+        self.nav_update_btn = QPushButton("  ↻  检查更新")
+        self.nav_update_btn.setObjectName("navBtn")
+        self.nav_update_btn.setCursor(Qt.PointingHandCursor)
+        self.nav_update_btn.clicked.connect(self._check_for_updates)
+        nav_layout.addWidget(self.nav_update_btn)
 
         bottom = QWidget()
         bottom_layout = QVBoxLayout(bottom)
@@ -3458,6 +3523,83 @@ class MainWindow(QMainWindow):
         else:
             self._font_scale, self._brightness, self._theme, self._concurrency = before
             self._apply_ui_settings()
+
+    def _check_for_updates(self):
+        if not sys.platform.startswith("win"):
+            QMessageBox.information(self, "检查更新", "Windows 自动更新仅在 Windows 发布版中可用。")
+            return
+        if not getattr(sys, "frozen", False):
+            QMessageBox.information(self, "检查更新", "开发环境不执行自动更新。")
+            return
+        self.nav_update_btn.setEnabled(False)
+        self.footer_status.setText("正在检查更新...")
+        try:
+            response = requests.get(UPDATE_MANIFEST_URL, timeout=(5, 12), proxies=NO_PROXIES)
+            response.raise_for_status()
+            manifest = response.json()
+            latest = str(manifest["version"])
+            release = manifest["windows"]
+            url = str(release["url"])
+            sha256 = str(release["sha256"])
+            if (not url.startswith("https://") or
+                    not re.fullmatch(r"[0-9a-fA-F]{64}", sha256) or
+                    not re.fullmatch(r"\d+(?:\.\d+){1,2}", latest)):
+                raise ValueError("更新清单格式无效")
+        except Exception as e:
+            self.footer_status.setText("检查更新失败")
+            QMessageBox.warning(self, "检查更新", f"无法获取更新信息：{e}")
+            self.nav_update_btn.setEnabled(True)
+            return
+
+        if _version_key(latest) <= _version_key(APP_VERSION):
+            self.footer_status.setText("当前已是最新版本")
+            QMessageBox.information(self, "检查更新", f"当前已是最新版本（V{APP_VERSION}）。")
+            self.nav_update_btn.setEnabled(True)
+            return
+
+        notes = str(manifest.get("notes", ""))[:2000]
+        message = f"发现新版本 V{latest}，当前版本为 V{APP_VERSION}。\n\n"
+        if notes:
+            message += f"更新内容：\n{notes}\n\n"
+        message += "下载完成并校验后，程序将自动重启完成更新。是否现在下载？"
+        if QMessageBox.question(self, "发现新版本", message, QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) != QMessageBox.Yes:
+            self.nav_update_btn.setEnabled(True)
+            self.footer_status.setText("已取消更新")
+            return
+
+        self._update_version = latest
+        self._update_thread = UpdateDownloadThread(url, sha256, latest, self)
+        self._update_thread.progress.connect(self._on_update_download_progress)
+        self._update_thread.completed.connect(self._on_update_download_complete)
+        self._update_thread.failed.connect(self._on_update_download_failed)
+        self._update_thread.start()
+
+    def _on_update_download_progress(self, percent):
+        self.footer_status.setText(f"正在下载更新: {percent}%")
+
+    def _on_update_download_failed(self, error):
+        self.footer_status.setText("更新下载失败")
+        self.nav_update_btn.setEnabled(True)
+        QMessageBox.warning(self, "更新失败", f"未安装新版本：{error}")
+
+    def _on_update_download_complete(self, downloaded_exe):
+        bundle_dir = getattr(sys, "_MEIPASS", "")
+        updater = os.path.join(bundle_dir, "GlacierAI_updater.exe")
+        target = os.path.abspath(sys.executable)
+        if not os.path.isfile(updater):
+            self._on_update_download_failed("更新组件缺失，请重新下载安装完整版本。")
+            return
+        try:
+            subprocess.Popen(
+                [updater, "--pid", str(os.getpid()), "--source", downloaded_exe, "--target", target],
+                cwd=os.path.dirname(target),
+                close_fds=True,
+            )
+        except OSError as e:
+            self._on_update_download_failed(str(e))
+            return
+        self.footer_status.setText("更新已下载，正在重启...")
+        QApplication.quit()
 
     def refresh_balance(self):
         if self._balance_thread is not None and self._balance_thread.isRunning():
@@ -3997,7 +4139,7 @@ class MainWindow(QMainWindow):
         )
         setup_combo(self.video_model_combo)
         self.video_model_combo.addItems(VIDEO_MODELS)
-        self.video_model_combo.setCurrentText("sora-2")
+        self.video_model_combo.setCurrentText("sd-2 ▸")
         self.video_model_combo.currentTextChanged.connect(self.on_video_model_changed)
         grid.addWidget(self.video_model_combo, 1, 0)
 
