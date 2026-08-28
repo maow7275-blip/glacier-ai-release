@@ -6,7 +6,9 @@ import math
 import hashlib
 import subprocess
 import tempfile
+import time
 from string import Template
+from urllib.parse import urlsplit
 import requests
 from datetime import datetime
 from PyQt5.QtWidgets import (
@@ -22,7 +24,7 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize, QPoint, QRect, QTimer, 
 from PyQt5.QtGui import QPixmap, QImage, QFont, QColor, QIcon, QPainter, QLinearGradient, QBrush, QPen, QPainterPath
 
 
-APP_VERSION = "3.8.0"
+APP_VERSION = "3.8.1"
 UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/maow7275-blip/glacier-ai-tool/main/update.json"
 
 
@@ -183,7 +185,7 @@ class UpdateDownloadThread(QThread):
 
     def run(self):
         try:
-            response = requests.get(self.url, stream=True, timeout=(10, 120), proxies=NO_PROXIES)
+            response = requests.get(self.url, stream=True, timeout=(10, 120))
             response.raise_for_status()
             total = int(response.headers.get("content-length", 0))
             temp_dir = tempfile.mkdtemp(prefix="GlacierAI-update-")
@@ -218,7 +220,17 @@ GEMINI_API_URL_TEMPLATE = "https://www.hfsyapi.cn/v1beta/models/{model}:generate
 FILE_UPLOAD_URL = "https://www.hfsyapi.cn/v1/files/image-upload"
 BALANCE_URL = "https://www.hfsyapi.cn/api/usage/token/fund"
 
-NO_PROXIES = {"http": None, "https": None}
+
+class ImageDownloadError(RuntimeError):
+    """Raised when an API result exists but its image cannot be downloaded."""
+
+
+def append_debug_log(message):
+    try:
+        with open("debug_output.log", "a", encoding="utf-8") as log_file:
+            log_file.write(message.rstrip() + "\n")
+    except Exception:
+        pass
 
 RATIO_LIST = ["1:1", "5:4", "9:16", "16:9", "4:3", "3:2", "4:5", "3:4", "2:3", "21:9"]
 
@@ -258,7 +270,8 @@ GEMINI_SIZE_MAP = {
 
 MODEL_QUALITY = {
     "gpt-image-2": ["1k"],
-    "gpt-image-2pro": ["2k", "4k"],
+    "gpt-image-2pro": ["2k"],
+    "gpt-image-2pro-4k": ["2k", "4k"],
     "nano-banana-2": ["1k", "2k", "4k"],
     "nano-banana-pro": ["1k", "2k", "4k"],
 }
@@ -269,6 +282,7 @@ GEMINI_MAX_REFERENCE_IMAGES = 7
 IMAGE_MODEL_MAX_REFS = {
     "gpt-image-2": 6,
     "gpt-image-2pro": 4,
+    "gpt-image-2pro-4k": 4,
     "nano-banana-2": 7,
     "nano-banana-pro": 7,
 }
@@ -1251,7 +1265,7 @@ class KeyDialog(QDialog):
         subtitle.setObjectName("loginSubtitle")
         card_layout.addWidget(subtitle)
 
-        version = QLabel("VERSION 3.8")
+        version = QLabel("VERSION 3.8.1")
         version.setObjectName("loginVersion")
         card_layout.addWidget(version)
 
@@ -1367,8 +1381,7 @@ class UploadRefImageThread(QThread):
                 FILE_UPLOAD_URL,
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 files={"file": (filename, img_bytes, mime)},
-                timeout=120,
-                proxies=NO_PROXIES,
+                timeout=(15, 120),
             )
         except Exception as e:
             self.failed.emit(self.tag, f"上传请求失败: {e}")
@@ -1412,8 +1425,7 @@ class BalanceQueryThread(QThread):
             resp = requests.get(
                 BALANCE_URL,
                 headers={"Authorization": f"Bearer {self.api_key}"},
-                timeout=15,
-                proxies=NO_PROXIES,
+                timeout=(10, 15),
             )
         except Exception as e:
             self.failed.emit(f"网络错误: {e}")
@@ -1479,6 +1491,48 @@ class GenerateThread(QThread):
         self.count = count
         self.image_url = image_url
 
+    def _download_result(self, index, url, label="图片"):
+        """Download an API result with proxy support, scoped auth, and retries."""
+        host = (urlsplit(url).hostname or "未知域名").lower()
+        api_host = (urlsplit(API_URL).hostname or "").lower()
+        headers = {}
+        if host == api_host:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        max_attempts = 3
+        last_error = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = requests.get(
+                    url,
+                    headers=headers,
+                    timeout=(15, 180),
+                )
+                append_debug_log(
+                    f"[IMAGE DOWNLOAD] index={index}, host={host}, attempt={attempt}, "
+                    f"status={response.status_code}, bytes={len(response.content)}, "
+                    f"content_type={response.headers.get('content-type', '?')}"
+                )
+                if response.status_code not in (408, 429, 500, 502, 503, 504):
+                    return response
+                last_error = f"HTTP {response.status_code}"
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                append_debug_log(
+                    f"[IMAGE DOWNLOAD ERROR] index={index}, host={host}, "
+                    f"attempt={attempt}/{max_attempts}, error={last_error}"
+                )
+
+            if attempt < max_attempts:
+                wait_seconds = attempt * 2
+                self.progress.emit(
+                    f"第{index+1}张{label}下载失败，{wait_seconds}秒后重试 "
+                    f"({attempt}/{max_attempts})..."
+                )
+                time.sleep(wait_seconds)
+
+        raise ImageDownloadError(f"{label}下载失败（{host}）：{last_error}")
+
     def _generate_one(self, index):
         if self.model in GEMINI_MODELS:
             self._generate_one_gemini(index)
@@ -1503,11 +1557,10 @@ class GenerateThread(QThread):
         else:
             print(f"[DEBUG] POST {API_URL} (json, no image)", flush=True)
 
-        import time as _time
         max_retries = 2
         resp = None
         for attempt in range(max_retries + 1):
-            resp = requests.post(API_URL, headers=headers, json=payload, timeout=600, proxies=NO_PROXIES)
+            resp = requests.post(API_URL, headers=headers, json=payload, timeout=(15, 600))
             try:
                 with open("debug_output.log", "a", encoding="utf-8") as _f:
                     _f.write(f"[RESP] model={self.model}, status={resp.status_code}, body={resp.text[:500]}\n")
@@ -1523,13 +1576,13 @@ class GenerateThread(QThread):
                     wait = 5
                 print(f"[DEBUG] 429 limited, retry {attempt+1}/{max_retries} after {wait}s...", flush=True)
                 self.progress.emit(f"第{index+1}张被限流，{wait}秒后重试...")
-                _time.sleep(wait)
+                time.sleep(wait)
                 continue
             if resp.status_code in (500, 502, 503, 504) and attempt < max_retries:
                 wait = (attempt + 1) * 3
                 print(f"[DEBUG] Retry {attempt+1}/{max_retries} after {wait}s...", flush=True)
                 self.progress.emit(f"第{index+1}张遇到服务器错误，{wait}秒后重试...")
-                _time.sleep(wait)
+                time.sleep(wait)
             else:
                 break
 
@@ -1558,8 +1611,7 @@ class GenerateThread(QThread):
             else:
                 dl_url = img_url
             print(f"[DEBUG] Downloading image from: {dl_url}", flush=True)
-            dl_headers = {"Authorization": f"Bearer {self.api_key}"}
-            img_resp = requests.get(dl_url, headers=dl_headers, timeout=120, proxies=NO_PROXIES)
+            img_resp = self._download_result(index, dl_url)
             print(f"[DEBUG] Download status={img_resp.status_code}, content_length={len(img_resp.content)}, content_type={img_resp.headers.get('content-type','?')}", flush=True)
             if img_resp.status_code == 200 and len(img_resp.content) > 1000:
                 content_type = img_resp.headers.get("content-type", "")
@@ -1575,7 +1627,7 @@ class GenerateThread(QThread):
                     elif file_id:
                         print(f"[DEBUG] Not an image, trying file_id fallback...", flush=True)
                         fb_url = f"https://www.hfsyapi.cn/v1/files/{file_id}/content"
-                        fb_resp = requests.get(fb_url, headers=dl_headers, timeout=120, proxies=NO_PROXIES)
+                        fb_resp = self._download_result(index, fb_url, "备用图片")
                         if fb_resp.status_code == 200 and len(fb_resp.content) > 2000:
                             self.one_finished.emit(index, fb_resp.content)
                         else:
@@ -1635,11 +1687,10 @@ class GenerateThread(QThread):
         api_url = GEMINI_API_URL_TEMPLATE.format(model=self.model)
         print(f"[DEBUG] POST {api_url} (gemini, ratio={ratio}, refs={len(self.image_url) if self.image_url else 0})", flush=True)
 
-        import time as _time
         max_retries = 2
         resp = None
         for attempt in range(max_retries + 1):
-            resp = requests.post(api_url, headers=headers, json=payload, timeout=600, proxies=NO_PROXIES)
+            resp = requests.post(api_url, headers=headers, json=payload, timeout=(15, 600))
             try:
                 with open("debug_output.log", "a", encoding="utf-8") as _f:
                     _f.write(f"[RESP] model={self.model}, status={resp.status_code}, body={resp.text[:500]}\n")
@@ -1655,12 +1706,12 @@ class GenerateThread(QThread):
                     wait = 5
                 print(f"[DEBUG] 429 limited, retry {attempt+1}/{max_retries} after {wait}s...", flush=True)
                 self.progress.emit(f"第{index+1}张被限流，{wait}秒后重试...")
-                _time.sleep(wait)
+                time.sleep(wait)
                 continue
             if resp.status_code in (500, 502, 503, 504) and attempt < max_retries:
                 wait = (attempt + 1) * 3
                 self.progress.emit(f"第{index+1}张遇到服务器错误，{wait}秒后重试...")
-                _time.sleep(wait)
+                time.sleep(wait)
             else:
                 break
 
@@ -1683,8 +1734,7 @@ class GenerateThread(QThread):
             img_url = "https://www.hfsyapi.cn" + img_url
 
         print(f"[DEBUG] Downloading gemini image from: {img_url}", flush=True)
-        dl_headers = {"Authorization": f"Bearer {self.api_key}"}
-        img_resp = requests.get(img_url, headers=dl_headers, timeout=120, proxies=NO_PROXIES)
+        img_resp = self._download_result(index, img_url)
         print(f"[DEBUG] Gemini download status={img_resp.status_code}, length={len(img_resp.content)}", flush=True)
 
         if img_resp.status_code == 200 and len(img_resp.content) > 1000:
@@ -1713,12 +1763,15 @@ class GenerateThread(QThread):
     def _safe_generate(self, index):
         try:
             self._generate_one(index)
-        except requests.exceptions.Timeout:
-            print(f"[DEBUG] _safe_generate({index}) Timeout", flush=True)
-            self.error.emit(index, f"第{index+1}张请求超时")
-        except requests.exceptions.ConnectionError:
-            print(f"[DEBUG] _safe_generate({index}) ConnectionError", flush=True)
-            self.error.emit(index, f"第{index+1}张网络连接失败")
+        except ImageDownloadError as e:
+            append_debug_log(f"[IMAGE RESULT FAILED] index={index}, error={e}")
+            self.error.emit(index, f"第{index+1}张{e}")
+        except requests.exceptions.Timeout as e:
+            append_debug_log(f"[API TIMEOUT] index={index}, error={type(e).__name__}: {e}")
+            self.error.emit(index, f"第{index+1}张生成接口请求超时")
+        except requests.exceptions.ConnectionError as e:
+            append_debug_log(f"[API CONNECTION ERROR] index={index}, error={type(e).__name__}: {e}")
+            self.error.emit(index, f"第{index+1}张生成接口连接失败")
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
@@ -1796,7 +1849,7 @@ class VideoGenerateThread(QThread):
         self.progress.emit(f"第{index+1}个视频: 正在提交请求...")
         resp = None
         for attempt in range(3):
-            resp = requests.post(VIDEO_API_URL, headers=headers, json=payload, timeout=600, proxies=NO_PROXIES)
+            resp = requests.post(VIDEO_API_URL, headers=headers, json=payload, timeout=(15, 600))
             _log("POST", f"attempt={attempt}, status={resp.status_code}, body={resp.text[:800]}")
             if resp.status_code == 200:
                 break
@@ -1833,7 +1886,7 @@ class VideoGenerateThread(QThread):
         for i in range(360):
             time.sleep(5)
             try:
-                poll_resp = requests.get(query_url, headers=headers, timeout=30, proxies=NO_PROXIES)
+                poll_resp = requests.get(query_url, headers=headers, timeout=(10, 30))
             except Exception as e:
                 _log("POLL_ERR", f"i={i}, err={e}")
                 continue
@@ -1869,7 +1922,7 @@ class VideoGenerateThread(QThread):
                 _log("COMPLETED", f"poll_iter={i}, elapsed={(i+1)*5}s, url={video_url[:120]}")
                 self.progress.emit(f"第{index+1}个视频: 正在下载...")
                 dl_start = time.time()
-                vid_resp = requests.get(video_url, timeout=300, proxies=NO_PROXIES)
+                vid_resp = requests.get(video_url, timeout=(15, 300))
                 dl_elapsed = time.time() - dl_start
                 _log("DOWNLOAD", f"status={vid_resp.status_code}, bytes={len(vid_resp.content)}, elapsed={dl_elapsed:.1f}s")
                 if vid_resp.status_code == 200:
@@ -3534,7 +3587,7 @@ class MainWindow(QMainWindow):
         self.nav_update_btn.setEnabled(False)
         self.footer_status.setText("正在检查更新...")
         try:
-            response = requests.get(UPDATE_MANIFEST_URL, timeout=(5, 12), proxies=NO_PROXIES)
+            response = requests.get(UPDATE_MANIFEST_URL, timeout=(5, 12))
             response.raise_for_status()
             manifest = response.json()
             latest = str(manifest["version"])
@@ -3791,7 +3844,13 @@ class MainWindow(QMainWindow):
         grid.addWidget(l1, 0, 0)
         self.model_combo = QComboBox()
         setup_combo(self.model_combo)
-        self.model_combo.addItems(["gpt-image-2", "gpt-image-2pro", "nano-banana-2", "nano-banana-pro"])
+        self.model_combo.addItems([
+            "gpt-image-2",
+            "gpt-image-2pro",
+            "gpt-image-2pro-4k",
+            "nano-banana-2",
+            "nano-banana-pro",
+        ])
         self.model_combo.currentTextChanged.connect(self.on_model_changed)
         grid.addWidget(self.model_combo, 1, 0)
 
@@ -4932,7 +4991,7 @@ class MainWindow(QMainWindow):
 
     def on_generate(self):
         prompt = self.prompt_input.toPlainText().strip()
-        print(f"[DEBUG] on_generate called, prompt='{prompt[:50]}', api_key='{self.api_key[:8] if self.api_key else 'NONE'}...'")
+        print(f"[DEBUG] on_generate called, prompt='{prompt[:50]}'")
         if not prompt:
             QMessageBox.warning(self, "提示", "请输入提示词")
             return
@@ -4944,8 +5003,9 @@ class MainWindow(QMainWindow):
         model = self.model_combo.currentText()
         img_ref_urls = [s["url"] for s in self._img_ref_data_list if s.get("url")]
 
-        if model in GEMINI_MODELS and len(img_ref_urls) > GEMINI_MAX_REFERENCE_IMAGES:
-            QMessageBox.warning(self, "提示", f"{model} 最多支持 {GEMINI_MAX_REFERENCE_IMAGES} 张参考图，请删除多余的参考图后重试")
+        max_refs = IMAGE_MODEL_MAX_REFS.get(model, 4)
+        if len(img_ref_urls) > max_refs:
+            QMessageBox.warning(self, "提示", f"{model} 最多支持 {max_refs} 张参考图，请删除多余的参考图后重试")
             return
 
         ratio = self.size_combo.currentText()
@@ -5425,22 +5485,38 @@ class MainWindow(QMainWindow):
             meta_lbl.setStyleSheet(f"color: {theme['text_muted']}; font-size: 11px; border: none; background: transparent;")
             info_layout.addWidget(meta_lbl)
 
+            error_text = str(record.get("error") or "").strip()
+            if error_text:
+                error_lbl = QLabel(error_text)
+                error_lbl.setWordWrap(True)
+                error_lbl.setStyleSheet(
+                    "color: #ff6b6b; font-size: 11px; border: none; background: transparent;"
+                )
+                info_layout.addWidget(error_lbl)
+
             info_layout.addStretch()
             card_layout.addLayout(info_layout, 1)
 
-            dl_btn = QPushButton("下载")
-            dl_btn.setCursor(Qt.PointingHandCursor)
-            dl_btn.setStyleSheet(
-                "QPushButton {"
-                " background: " + theme['accent_softer'] + "; color: " + theme['accent'] + ";"
-                " border: 1px solid " + theme['accent_border'] + "; border-radius: 6px;"
-                " padding: 8px 16px; font-size: 12px;"
-                " }"
-                "QPushButton:hover { background: " + theme['accent_soft'] + "; }"
-            )
             img_files = record.get("images", [])
-            dl_btn.clicked.connect(lambda checked, files=img_files, labels=thumb_labels: self._download_history_images(files, labels))
-            card_layout.addWidget(dl_btn)
+            if img_files:
+                dl_btn = QPushButton("下载")
+                dl_btn.setCursor(Qt.PointingHandCursor)
+                dl_btn.setStyleSheet(
+                    "QPushButton {"
+                    " background: " + theme['accent_softer'] + "; color: " + theme['accent'] + ";"
+                    " border: 1px solid " + theme['accent_border'] + "; border-radius: 6px;"
+                    " padding: 8px 16px; font-size: 12px;"
+                    " }"
+                    "QPushButton:hover { background: " + theme['accent_soft'] + "; }"
+                )
+                dl_btn.clicked.connect(lambda checked, files=img_files, labels=thumb_labels: self._download_history_images(files, labels))
+                card_layout.addWidget(dl_btn)
+            else:
+                no_file_lbl = QLabel("未下载到图片")
+                no_file_lbl.setStyleSheet(
+                    f"color: {theme['text_muted']}; font-size: 11px; border: none; background: transparent;"
+                )
+                card_layout.addWidget(no_file_lbl)
 
             self.history_layout.addWidget(card)
 
